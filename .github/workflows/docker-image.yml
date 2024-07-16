@@ -2,9 +2,9 @@ name: Docker Image CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   push_to_registry:
@@ -40,10 +40,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          
+
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1.1.2
         with:
-          subject-name: jorisdm/wireguard-status
+          subject-name: docker.io/jorisdm/wireguard-status
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
