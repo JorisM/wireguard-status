@@ -24,9 +24,10 @@ import Effect.Aff.Class (class MonadAff)
 import Halogen (liftAff)
 import Halogen as H
 import Halogen.Aff (runHalogenAff)
-import Halogen.VDom.Driver (runUI)
 import Halogen.Aff.Util (awaitBody)
 import Halogen.HTML as HH
+import Halogen.HTML.Events (onClick)
+import Halogen.VDom.Driver (runUI)
 
 type PeerData = 
     { 
@@ -69,6 +70,7 @@ render (State state) =
   HH.div_
     [ HH.div_
         (map peerHtml state.peers)
+    , HH.button [ onClick (\_ -> FetchAndUpdatePeers) ] [ HH.text "Fetch and Update Peers" ]
     ]
 
 peerHtml :: forall m. Peer -> HH.ComponentHTML Action () m
