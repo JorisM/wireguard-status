@@ -9,7 +9,7 @@ you need to mount your `wg0.conf` and pass the docker socket (usually `/var/run/
 once done, the only thing left is to set the name of the wireguard container to whatever you named yours with: `WG_CONTAINER_NAME`.
 
     wireguard-status:
-        image: jorisdm:wireguard-status
+        image: jorisdm/wireguard-status:main
         container_name: wireguard-status
         environment:
           - WG_CONF_FILE=/wg0.conf
