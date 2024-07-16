@@ -1,0 +1,20 @@
+package:
+  name: frontend
+  dependencies:
+    - affjax
+    - console
+    - effect
+    - prelude
+    - affjax-web
+    - web-html
+    - js-timers
+    - argonaut-core
+    - argonaut-codecs
+    - halogen
+  test:
+    main: Test.Main
+    dependencies: []
+workspace:
+  packageSet:
+    registry: 55.0.0
+  extraPackages: {}
