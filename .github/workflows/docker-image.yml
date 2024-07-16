@@ -44,6 +44,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: jorisdm/wireguard-status:latest
+          subject-name: jorisdm/wireguard-status
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
