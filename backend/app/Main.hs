@@ -21,10 +21,15 @@ type PublicKey = Text
 
 data PeerNameMap = PeerNameMap {acc :: Map.Map Name PublicKey, currentPeerName :: Name}
 
+data DataWithUnit = DataWithUnit
+  { amount :: Text,
+    unit :: Text
+  }
+
 data PeerData = PeerData
   { peerDataStatus :: Text,
-    peerDataReceived :: (Text, Text), -- (Amount, Unit)
-    peerDataSent :: (Text, Text), -- (Amount, Unit)
+    peerDataReceived :: DataWithUnit,
+    peerDataSent :: DataWithUnit,
     peerDataRest :: [String]
   }
 
@@ -38,13 +43,13 @@ defaultAcc = PeerNameMap {acc = Map.empty, currentPeerName = ""}
 
 type InvertedPeerNameMap = Map.Map PublicKey (Set Name)
 
+instance ToJSON DataWithUnit where
+  toJSON (DataWithUnit amount unit) =
+    object ["amount" .= amount, "unit" .= unit]
+
 instance ToJSON PeerData where
-  toJSON (PeerData status (receivedAmt, receivedUnit) (sentAmt, sentUnit) _) =
-    object
-      [ "status" .= status,
-        "received" .= object ["amount" .= receivedAmt, "unit" .= receivedUnit],
-        "sent" .= object ["amount" .= sentAmt, "unit" .= sentUnit]
-      ]
+  toJSON (PeerData status received sent _) =
+    object ["status" .= status, "received" .= received, "sent" .= sent]
 
 instance ToJSON Peer where
   toJSON (Peer name peerData) =
@@ -88,7 +93,7 @@ parseStatus peerNames = do
       | "peer: " `List.isPrefixOf` x =
           let publicKey = T.strip (T.pack (drop 6 x))
               peerName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
-              peerData_ = parsePeerData xs (PeerData "" ("0", "B") ("0", "B") xs)
+              peerData_ = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") xs)
            in (Set.elemAt 0 peerName, peerData_) : parseStatusLines peerNames_ (peerDataRest peerData_)
       | otherwise = parseStatusLines peerNames_ xs
 
@@ -103,17 +108,14 @@ parseStatus peerNames = do
                   else "Offline"
            in parsePeerData xs $ acc_ {peerDataStatus = status_, peerDataRest = xs}
       | "  transfer: " `List.isPrefixOf` x =
-          let transfer = T.strip (T.pack (drop 11 x))
-              (received, sent) = parseTransfer transfer
+          let transferText = T.strip (T.pack x)
+              transferParts = T.splitOn ", " (T.drop 11 transferText)
+              receivedParts = T.words $ transferParts !! 0
+              sentParts = T.words $ transferParts !! 1
+              received = DataWithUnit (receivedParts !! 0) (receivedParts !! 1)
+              sent = DataWithUnit (sentParts !! 0) (sentParts !! 1)
            in acc_ {peerDataReceived = received, peerDataSent = sent, peerDataRest = xs}
       | otherwise = parsePeerData xs $ acc_ {peerDataRest = xs}
-
-    parseTransfer :: Text -> ((Text, Text), (Text, Text))
-    parseTransfer transfer =
-      let parts = T.splitOn ", " transfer
-          receivedPart = T.words $ head parts
-          sentPart = T.words $ last parts
-       in ((head receivedPart, receivedPart !! 1), (head sentPart, sentPart !! 1))
 
 invert :: (Ord k, Ord v) => Map.Map k v -> Map.Map v (Set k)
 invert = Map.foldlWithKey (\acc_ k v -> Map.insertWith Set.union v (Set.singleton k) acc_) Map.empty
