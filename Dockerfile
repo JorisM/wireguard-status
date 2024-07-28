@@ -13,7 +13,7 @@ WORKDIR /app
 # First Build the deps for better caching
 COPY backend/stack.yaml .
 COPY backend/stack.yaml.lock .
-COPY backend/wg-status.cabal .
+COPY backend/wireguard-status.cabal .
 RUN stack install --only-dependencies
 
 # Then build the app itself
@@ -63,7 +63,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy the Haskell build output from the haskell-build stage
-COPY --from=haskell-build /root/.local/bin/wg-status-exe /usr/local/bin/
+COPY --from=haskell-build /root/.local/bin/wireguard-status-exe /usr/local/bin/
 COPY --from=haskell-build /app/static/index.html /usr/local/bin/static/index.html
 # Copy the npm build output from the npm-build stage
 COPY --from=npm-build /app/frontend/index.js  /usr/local/bin/static/index.js
@@ -72,4 +72,4 @@ COPY --from=npm-build /app/frontend/index.js  /usr/local/bin/static/index.js
 EXPOSE 8888
 
 # Run the Haskell application
-CMD ["wg-status-exe"]
+CMD ["wireguard-status-exe"]

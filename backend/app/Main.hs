@@ -2,24 +2,17 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 import Control.Monad.IO.Class (liftIO)
-import Data.Aeson (ToJSON (..), encode, object, (.=))
+import Data.Aeson (ToJSON (..), object, (.=))
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
 import Data.Maybe
-import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as T
-import Data.Text.Lazy qualified as TL
-import Network.HTTP.Types.Status (status200)
-import Network.Wai
-import Network.Wai.Handler.Warp
 import Network.Wai.Middleware.Static
 import System.Environment (lookupEnv)
-import System.IO
 import System.Process
-import Text.Printf (printf)
 import Web.Scotty qualified as Scotty
 
 type Name = Text
@@ -29,14 +22,14 @@ type PublicKey = Text
 data PeerNameMap = PeerNameMap {acc :: Map.Map Name PublicKey, currentPeerName :: Name}
 
 data PeerData = PeerData
-  { status :: Text,
-    transfer :: Text,
-    rest :: [String]
+  { peerDataStatus :: Text,
+    peerDataTransfer :: Text,
+    peerDataRest :: [String]
   }
 
 data Peer = Peer
-  { name :: Text,
-    peerData :: PeerData
+  { peerName :: Text,
+    peerPeerData :: PeerData
   }
 
 defaultAcc :: PeerNameMap
@@ -86,31 +79,31 @@ parseStatus peerNames = do
   where
     parseStatusLines :: InvertedPeerNameMap -> [String] -> [(Text, PeerData)]
     parseStatusLines _ [] = []
-    parseStatusLines peerNames (x : xs)
+    parseStatusLines peerNames_ (x : xs)
       | "peer: " `List.isPrefixOf` x =
           let publicKey = T.strip (T.pack (drop 6 x))
-              peerName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames)
-              peerData = parsePeerData xs (PeerData "" "" xs)
-           in (Set.elemAt 0 peerName, peerData) : parseStatusLines peerNames (rest peerData)
-      | otherwise = parseStatusLines peerNames xs
+              peerName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
+              peerData_ = parsePeerData xs (PeerData "" "" xs)
+           in (Set.elemAt 0 peerName, peerData_) : parseStatusLines peerNames_ (peerDataRest peerData_)
+      | otherwise = parseStatusLines peerNames_ xs
 
     parsePeerData :: [String] -> PeerData -> PeerData
-    parsePeerData [] acc = acc
-    parsePeerData (x : xs) acc
+    parsePeerData [] acc_ = acc_
+    parsePeerData (x : xs) acc_
       | "  latest handshake: " `List.isPrefixOf` x =
           let handshake = T.strip (T.pack (drop 19 x))
-              status =
+              status_ =
                 if handshake == "0 seconds ago" || " seconds ago" `T.isSuffixOf` handshake || " minute ago" `T.isSuffixOf` handshake || " minutes ago" `T.isSuffixOf` handshake
                   then "Online"
                   else "Offline"
-           in parsePeerData xs $ acc {status = status, rest = xs}
+           in parsePeerData xs $ acc_ {peerDataStatus = status_, peerDataRest = xs}
       | "  transfer: " `List.isPrefixOf` x =
-          let transfer = T.strip (T.pack x)
-           in acc {transfer = transfer, rest = xs}
-      | otherwise = parsePeerData xs $ acc {rest = xs}
+          let transfer_ = T.strip (T.pack x)
+           in acc_ {peerDataTransfer = transfer_, peerDataRest = xs}
+      | otherwise = parsePeerData xs $ acc_ {peerDataRest = xs}
 
 invert :: (Ord k, Ord v) => Map.Map k v -> Map.Map v (Set k)
-invert = Map.foldlWithKey (\acc k v -> Map.insertWith Set.union v (Set.singleton k) acc) Map.empty
+invert = Map.foldlWithKey (\acc_ k v -> Map.insertWith Set.union v (Set.singleton k) acc_) Map.empty
 
 main :: IO ()
 main = do

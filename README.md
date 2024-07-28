@@ -1,4 +1,4 @@
-# wg-status
+# wireguard-status
 
 a tool to see which clients are connected to your wireguard docker instance.
 it does this by parsing the clients from the wg0.conf and then checking via the docker socket which ones are connected + how much data is being transmitted.

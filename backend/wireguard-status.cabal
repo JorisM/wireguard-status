@@ -4,30 +4,28 @@ cabal-version: 2.2
 --
 -- see: https://github.com/sol/hpack
 
-name:           wg-status
+name:           wireguard-status
 version:        0.1.0.0
-description:    Please see the README on GitHub at <https://github.com/githubuser/wg-status#readme>
-homepage:       https://github.com/githubuser/wg-status#readme
-bug-reports:    https://github.com/githubuser/wg-status/issues
-author:         Author name here
-maintainer:     example@example.com
-copyright:      2024 Author name here
+description:    Please see the README on GitHub at <https://github.com/JorisM/wireguard-status#readme>
+homepage:       https://github.com/JorisM/wireguard-status#readme
+bug-reports:    https://github.com/JorisM/wireguard-status/issues
+author:         Joris Morger
+maintainer:     jorismorger@gmail.com
+copyright:      2024 Joris Morger
 license:        BSD-3-Clause
-license-file:   LICENSE
 build-type:     Simple
-extra-source-files:
-    README.md
-    CHANGELOG.md
 
 source-repository head
   type: git
-  location: https://github.com/githubuser/wg-status
+  location: https://github.com/JorisM/wireguard-status
 
 library
+  exposed-modules:
+      Lib
   other-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   autogen-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   hs-source-dirs:
       src
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
@@ -44,12 +42,12 @@ library
     , warp
   default-language: Haskell2010
 
-executable wg-status-exe
+executable wireguard-status-exe
   main-is: Main.hs
   other-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   autogen-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   hs-source-dirs:
       app
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -64,16 +62,16 @@ executable wg-status-exe
     , wai
     , wai-middleware-static
     , warp
-    , wg-status
+    , wireguard-status
   default-language: Haskell2010
 
-test-suite wg-status-test
+test-suite wireguard-status-test
   type: exitcode-stdio-1.0
   main-is: Spec.hs
   other-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   autogen-modules:
-      Paths_wg_status
+      Paths_wireguard_status
   hs-source-dirs:
       test
   ghc-options: -Wall -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
@@ -88,5 +86,5 @@ test-suite wg-status-test
     , wai
     , wai-middleware-static
     , warp
-    , wg-status
+    , wireguard-status
   default-language: Haskell2010
