@@ -94,11 +94,12 @@ parseStatus peerNames = do
           let publicKey = T.strip (T.pack (drop 6 x))
               peerName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
               peerData_ = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") xs)
-           in (Set.elemAt 0 peerName, peerData_) : parseStatusLines peerNames_ (peerDataRest peerData_)
+              (updatedPeerData, rest) = ensureOfflineIfNoHandshake peerData_
+           in (Set.elemAt 0 peerName, updatedPeerData) : parseStatusLines peerNames_ rest
       | otherwise = parseStatusLines peerNames_ xs
 
-    parsePeerData :: [String] -> PeerData -> PeerData
-    parsePeerData [] acc_ = acc_
+    parsePeerData :: [String] -> PeerData -> (PeerData, [String])
+    parsePeerData [] acc_ = (acc_, [])
     parsePeerData (x : xs) acc_
       | "  latest handshake: " `List.isPrefixOf` x =
           let handshake = T.strip (T.pack (drop 19 x))
@@ -114,8 +115,14 @@ parseStatus peerNames = do
               sentParts = T.words $ transferParts !! 1
               received = DataWithUnit (receivedParts !! 0) (receivedParts !! 1)
               sent = DataWithUnit (sentParts !! 0) (sentParts !! 1)
-           in acc_ {peerDataReceived = received, peerDataSent = sent, peerDataRest = xs}
+           in parsePeerData xs $ acc_ {peerDataReceived = received, peerDataSent = sent, peerDataRest = xs}
       | otherwise = parsePeerData xs $ acc_ {peerDataRest = xs}
+
+    ensureOfflineIfNoHandshake :: PeerData -> (PeerData, [String])
+    ensureOfflineIfNoHandshake pdata =
+      if peerDataStatus pdata == ""
+        then (pdata {peerDataStatus = "Offline"}, peerDataRest pdata)
+        else (pdata, peerDataRest pdata)
 
 invert :: (Ord k, Ord v) => Map.Map k v -> Map.Map v (Set k)
 invert = Map.foldlWithKey (\acc_ k v -> Map.insertWith Set.union v (Set.singleton k) acc_) Map.empty
