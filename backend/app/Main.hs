@@ -93,7 +93,7 @@ parseStatus peerNames = do
       | "peer: " `List.isPrefixOf` x =
           let publicKey = T.strip (T.pack (drop 6 x))
               peerName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
-              peerData_ = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") xs)
+              (peerData_, _) = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") xs)
               (updatedPeerData, rest) = ensureOfflineIfNoHandshake peerData_
            in (Set.elemAt 0 peerName, updatedPeerData) : parseStatusLines peerNames_ rest
       | otherwise = parseStatusLines peerNames_ xs
