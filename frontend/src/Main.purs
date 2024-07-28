@@ -8,6 +8,7 @@ module Main
   , handleAction
   , main
   , peerHtml
+  , DataWithUnit
   )
   where
 
@@ -34,11 +35,16 @@ import Halogen.HTML.Properties (class_)
 import Halogen.Subscription as HS
 import Halogen.VDom.Driver (runUI)
 
+type DataWithUnit = 
+  { amount :: String
+  , unit :: String
+  }
+
 type PeerData = 
-    { 
-      status :: String
-    , transfer :: String
-    }
+  { status :: String
+  , received :: DataWithUnit
+  , sent :: DataWithUnit
+  }
 
 type Peer = 
   { name :: String
@@ -83,7 +89,8 @@ peerHtml peer =
   HH.div [ class_  $ ClassName "p-5 mb-4 border-b border-gray-200" ]
     [ HH.h2 [ class_  $ ClassName "text-2xl font-semibold text-gray-800" ] [ HH.text $ "Peer: " <> peer.name ]
     , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Status: " <> peer.data.status ]
-    , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Transfer: " <> peer.data.transfer ]
+    , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Received: " <> peer.data.received.amount <> " " <> peer.data.received.unit ]
+    , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Sent: " <> peer.data.sent.amount <> " " <> peer.data.sent.unit ]
     ]
 
 handleAction :: forall output m. MonadAff m => Action -> H.HalogenM State Action () output m Unit
@@ -97,12 +104,10 @@ handleAction = case _ of
   SetPeers peers -> do
     H.modify_ \(State state) -> State (state { peers = peers })
 
-
 main :: Effect Unit
 main = runHalogenAff do
   body <- awaitBody
   runUI component unit body
-
 
 timer :: forall m a. MonadAff m => a -> m (HS.Emitter a)
 timer val = do
