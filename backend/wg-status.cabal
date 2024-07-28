@@ -24,8 +24,6 @@ source-repository head
   location: https://github.com/githubuser/wg-status
 
 library
-  exposed-modules:
-      Lib
   other-modules:
       Paths_wg_status
   autogen-modules:

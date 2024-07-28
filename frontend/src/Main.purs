@@ -24,11 +24,13 @@ import Effect (Effect)
 import Effect.Aff (Aff, Milliseconds(..))
 import Effect.Aff as Aff
 import Effect.Aff.Class (class MonadAff, liftAff)
+import Halogen (ClassName(..))
 import Halogen as H
 import Halogen.Aff (runHalogenAff)
 import Halogen.Aff.Util (awaitBody)
 import Halogen.HTML as HH
 import Halogen.HTML.Events (onClick)
+import Halogen.HTML.Properties (class_)
 import Halogen.Subscription as HS
 import Halogen.VDom.Driver (runUI)
 
@@ -70,18 +72,18 @@ component = H.mkComponent
 
 render :: forall m. State -> H.ComponentHTML Action () m
 render (State state) =
-  HH.div_
-    [ HH.div_
+  HH.div [ class_ $ ClassName "min-h-screen bg-gray-100 flex flex-col items-center" ]
+    [ HH.div [ class_ $ ClassName "w-full max-w-4xl mt-10 p-5 bg-white shadow-md rounded-lg" ]
         (map peerHtml state.peers)
-    , HH.button [ onClick \_ -> FetchAndUpdatePeers ] [ HH.text "Fetch and Update Peers" ]
+    , HH.button [ class_ $ ClassName "mt-5 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600", onClick \_ -> FetchAndUpdatePeers ] [ HH.text "Fetch and Update Peers" ]
     ]
 
 peerHtml :: forall m. Peer -> HH.ComponentHTML Action () m
 peerHtml peer =
-  HH.div_
-    [ HH.h2_ [ HH.text $ "Peer: " <> peer.name ]
-    , HH.p_ [ HH.text $ "Status: " <> peer.data.status ]
-    , HH.p_ [ HH.text $ "Transfer: " <> peer.data.transfer ]
+  HH.div [ class_  $ ClassName "p-5 mb-4 border-b border-gray-200" ]
+    [ HH.h2 [ class_  $ ClassName "text-2xl font-semibold text-gray-800" ] [ HH.text $ "Peer: " <> peer.name ]
+    , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Status: " <> peer.data.status ]
+    , HH.p [ class_  $ ClassName "text-gray-600" ] [ HH.text $ "Transfer: " <> peer.data.transfer ]
     ]
 
 handleAction :: forall output m. MonadAff m => Action -> H.HalogenM State Action () output m Unit

@@ -11,16 +11,17 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # First Build the deps for better caching
-COPY stack.yaml .
-COPY stack.yaml.lock .
-COPY wg-status.cabal .
+COPY backend/stack.yaml .
+COPY backend/stack.yaml.lock .
+COPY backend/wg-status.cabal .
 RUN stack install --only-dependencies
 
 # Then build the app itself
-COPY app app
-COPY src src
-COPY test test
-COPY Setup.hs .
+COPY backend/app app
+COPY backend/src src
+COPY backend/test test
+COPY backend/Setup.hs .
+COPY backend/package.yaml .
 COPY README.md .
 COPY CHANGELOG.md .
 COPY LICENSE .

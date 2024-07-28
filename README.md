@@ -12,14 +12,14 @@ once done, the only thing left is to set the name of the wireguard container to 
         image: jorisdm/wireguard-status:main
         container_name: wireguard-status
         environment:
-          - WG_CONF_FILE=/wg0.conf
-          - WG_CONTAINER_NAME=wireguard
+            - WG_CONF_FILE=/config/wg0.conf
+            - WG_CONTAINER_NAME=wireguard
         restart: unless-stopped
         ports:
             - 8888:8888
         volumes:
-          - ./vpn/config/wg0.conf:/wg0.conf
-          - /var/run/docker.sock:/var/run/docker.sock
+            - ./vpn/config:/config
+            - /var/run/docker.sock:/var/run/docker.sock
 
 ## Docker Compose
 
