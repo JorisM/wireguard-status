@@ -110,8 +110,8 @@ peerHtml peer =
   HH.div [ class_ $ ClassName "p-5 mb-4 border-b border-gray-200" ]
     [ HH.h2 [ class_ $ ClassName "text-2xl font-semibold text-gray-800" ] [ HH.text $ "Peer: " <> peer.name ]
     , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Status: " <> peer.data.status ]
-    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Received: " <> show peer.data.received.amount <> " " <> peer.data.received.unit ]
-    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Sent: " <> show peer.data.sent.amount <> " " <> peer.data.sent.unit ]
+    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Received: " <> peer.data.received.amount <> " " <> peer.data.received.unit ]
+    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Sent: " <> peer.data.sent.amount <> " " <> peer.data.sent.unit ]
     ]
 
 handleAction :: forall output m. MonadAff m => Action -> H.HalogenM State Action () output m Unit
