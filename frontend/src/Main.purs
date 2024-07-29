@@ -8,7 +8,6 @@ import Affjax.ResponseFormat (json)
 import Affjax.Web (driver)
 import Control.Monad.Rec.Class (forever)
 import Data.Argonaut.Decode (decodeJson)
-import Data.Argonaut.Decode.Class (class DecodeJson)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
@@ -25,29 +24,14 @@ import Halogen.HTML.Properties (class_)
 import Halogen.Subscription as HS
 import Halogen.VDom.Driver (runUI)
 import Data.Array (filter, sortBy, reverse)
-import Data.Argonaut.Decode.Generic (genericDecodeJson)
-import Data.Generic.Rep (class Generic)
-import Effect.Class.Console (log, logShow)
+import Effect.Class.Console (log)
 import Data.Number as Number
-
-data PeerUnit = B | KiB | MiB | GiB
-
-derive instance genericPeerUnit :: Generic PeerUnit _
-
-instance Show PeerUnit where
-  show B = "B"
-  show KiB = "KiB"
-  show MiB = "MiB"
-  show GiB = "GiB"
-
-instance decodeJson :: DecodeJson PeerUnit where
-  decodeJson a = genericDecodeJson a
 
 data SortCriteria = ByName | ByTransfer
 
 type DataWithUnit =
   { amount :: String
-  , unit :: PeerUnit
+  , unit :: String
   }
 
 type PeerData =
@@ -126,8 +110,8 @@ peerHtml peer =
   HH.div [ class_ $ ClassName "p-5 mb-4 border-b border-gray-200" ]
     [ HH.h2 [ class_ $ ClassName "text-2xl font-semibold text-gray-800" ] [ HH.text $ "Peer: " <> peer.name ]
     , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Status: " <> peer.data.status ]
-    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Received: " <> show peer.data.received.amount <> " " <> showUnit peer.data.received.unit ]
-    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Sent: " <> show peer.data.sent.amount <> " " <> showUnit peer.data.sent.unit ]
+    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Received: " <> show peer.data.received.amount <> " " <> peer.data.received.unit ]
+    , HH.p [ class_ $ ClassName "text-gray-600" ] [ HH.text $ "Sent: " <> show peer.data.sent.amount <> " " <> peer.data.sent.unit ]
     ]
 
 handleAction :: forall output m. MonadAff m => Action -> H.HalogenM State Action () output m Unit
@@ -148,7 +132,6 @@ handleAction = case _ of
         let onlinePeers = filter (\p -> p.data.status == "Online") peers
         let offlinePeers = filter (\p -> p.data.status == "Offline") peers
         H.modify_ \state -> state { onlinePeers = onlinePeers, offlinePeers = offlinePeers, errorMessage = Nothing }
-        logShow peers
   ToggleSortOrder -> do
     H.modify_ \state -> state { sortOrderAsc = not state.sortOrderAsc }
   SetSortCriteria criteria -> do
@@ -167,18 +150,12 @@ getTransferSize :: DataWithUnit -> Number
 getTransferSize { amount, unit } =
   case Number.fromString amount of
     Just num -> num * case unit of
-      B -> 1.0
-      KiB -> 1024.0
-      MiB -> 1024.0 * 1024.0
-      GiB -> 1024.0 * 1024.0 * 1024.0
+      "B" -> 1.0
+      "KiB" -> 1024.0
+      "MiB" -> 1024.0 * 1024.0
+      "GiB" -> 1024.0 * 1024.0 * 1024.0
+      _ -> 0.0
     Nothing -> 0.0
-
-showUnit :: PeerUnit -> String
-showUnit unit = case unit of
-  B -> "B"
-  KiB -> "KiB"
-  MiB -> "MiB"
-  GiB -> "GiB"
 
 main :: Effect Unit
 main = runHalogenAff do

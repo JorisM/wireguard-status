@@ -5,7 +5,6 @@ package:
     - affjax-web
     - argonaut-codecs
     - argonaut-core
-    - argonaut-generic
     - console
     - effect
     - halogen
