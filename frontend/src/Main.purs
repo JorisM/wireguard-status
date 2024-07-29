@@ -28,6 +28,7 @@ import Data.Array (filter, sortBy, reverse)
 import Data.Argonaut.Decode.Generic (genericDecodeJson)
 import Data.Generic.Rep (class Generic)
 import Effect.Class.Console (logShow)
+import Data.Number as Number
 
 data PeerUnit = B | KiB | MiB | GiB
 
@@ -45,7 +46,7 @@ instance decodeJson :: DecodeJson PeerUnit where
 data SortCriteria = ByName | ByTransfer
 
 type DataWithUnit =
-  { amount :: Number
+  { amount :: String
   , unit :: PeerUnit
   }
 
@@ -141,11 +142,14 @@ sortPeers criteria asc peers =
     if asc then sortedPeers else reverse sortedPeers
 
 getTransferSize :: DataWithUnit -> Number
-getTransferSize { amount, unit } = amount * case unit of
-  B -> 1.0
-  KiB -> 1024.0
-  MiB -> 1024.0 * 1024.0
-  GiB -> 1024.0 * 1024.0 * 1024.0
+getTransferSize { amount, unit } =
+  case Number.fromString amount of
+    Just num -> num * case unit of
+      B -> 1.0
+      KiB -> 1024.0
+      MiB -> 1024.0 * 1024.0
+      GiB -> 1024.0 * 1024.0 * 1024.0
+    Nothing -> 0.0
 
 showUnit :: PeerUnit -> String
 showUnit unit = case unit of
