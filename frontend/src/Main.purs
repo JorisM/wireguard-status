@@ -27,10 +27,17 @@ import Halogen.VDom.Driver (runUI)
 import Data.Array (filter, sortBy, reverse)
 import Data.Argonaut.Decode.Generic (genericDecodeJson)
 import Data.Generic.Rep (class Generic)
+import Effect.Class.Console (logShow)
 
 data PeerUnit = B | KiB | MiB | GiB
 
 derive instance genericPeerUnit :: Generic PeerUnit _
+
+instance Show PeerUnit where
+  show B = "B"
+  show KiB = "KiB"
+  show MiB = "MiB"
+  show GiB = "GiB"
 
 instance decodeJson :: DecodeJson PeerUnit where
   decodeJson a = genericDecodeJson a
@@ -118,6 +125,7 @@ handleAction = case _ of
     let onlinePeers = filter (\p -> p.data.status == "Online") peers
     let offlinePeers = filter (\p -> p.data.status == "Offline") peers
     H.modify_ \state -> state { onlinePeers = onlinePeers, offlinePeers = offlinePeers }
+    logShow peers
   ToggleSortOrder -> do
     H.modify_ \state -> state { sortOrderAsc = not state.sortOrderAsc }
   SetSortCriteria criteria -> do
@@ -156,5 +164,5 @@ timer val = do
   { emitter, listener } <- H.liftEffect HS.create
   _ <- H.liftAff $ Aff.forkAff $ forever do
     H.liftEffect $ HS.notify listener val
-    Aff.delay $ Milliseconds 2000.0
+    Aff.delay $ Milliseconds 4000.0
   pure emitter
