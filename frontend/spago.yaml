@@ -2,15 +2,16 @@ package:
   name: frontend
   dependencies:
     - affjax
+    - affjax-web
+    - argonaut-codecs
+    - argonaut-core
+    - argonaut-generic
     - console
     - effect
-    - prelude
-    - affjax-web
-    - web-html
-    - js-timers
-    - argonaut-core
-    - argonaut-codecs
     - halogen
+    - js-timers
+    - prelude
+    - web-html
   test:
     main: Test.Main
     dependencies: []
