@@ -3,7 +3,7 @@
 a tool to see which clients are connected to your wireguard docker instance.
 it does this by parsing the clients from the wg0.conf and then checking via the docker socket which ones are connected + how much data is being transmitted.
 
-![image](https://github.com/user-attachments/assets/7d3304cb-bf49-4f9a-97e8-7c7725f8e50c)
+![image](https://github.com/user-attachments/assets/a7e7fd52-6ebb-486c-bc09-1929e4b2e397)
 
 
 https://hub.docker.com/repository/docker/jorisdm/wireguard-status/general
