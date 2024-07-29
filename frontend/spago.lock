@@ -7,6 +7,7 @@ workspace:
         - affjax-web
         - argonaut-codecs
         - argonaut-core
+        - argonaut-generic
         - console
         - effect
         - halogen
@@ -20,6 +21,7 @@ workspace:
         - affjax-web
         - argonaut-codecs
         - argonaut-core
+        - argonaut-generic
         - arraybuffer-types
         - arrays
         - avar
@@ -679,6 +681,15 @@ packages:
       - prelude
       - strings
       - tailrec
+  argonaut-generic:
+    type: registry
+    version: 8.0.0
+    integrity: sha256-WCqRWoomRKg5BFZnGBS4k4SqBX84fy/X1aJzMyaIeP0=
+    dependencies:
+      - argonaut-codecs
+      - argonaut-core
+      - prelude
+      - record
   arraybuffer-types:
     type: registry
     version: 3.0.2

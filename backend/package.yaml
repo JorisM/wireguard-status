@@ -30,6 +30,7 @@ dependencies:
   - wai
   - wai-middleware-static
   - warp
+  - parsec
 
 ghc-options:
   - -Wall

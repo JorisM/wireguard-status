@@ -34,6 +34,7 @@ library
     , base >=4.7 && <5
     , containers
     , http-types
+    , parsec
     , process
     , scotty
     , text
@@ -56,6 +57,7 @@ executable wireguard-status-exe
     , base >=4.7 && <5
     , containers
     , http-types
+    , parsec
     , process
     , scotty
     , text
@@ -80,6 +82,7 @@ test-suite wireguard-status-test
     , base >=4.7 && <5
     , containers
     , http-types
+    , parsec
     , process
     , scotty
     , text
