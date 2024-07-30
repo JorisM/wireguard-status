@@ -15,7 +15,7 @@ import System.Environment (lookupEnv)
 import System.Process
 import Web.Scotty qualified as Scotty
 import Data.Text (pack)
-import Text.Parsec (char, digit, many1, parse, skipMany1, space, string, (<|>), letter, ParsecT, try)
+import Text.Parsec (char, digit, many1, parse, skipMany1, space, string, (<|>), ParsecT, try)
 import Text.Parsec.Text (Parser)
 import Data.Functor.Identity (Identity)
 
@@ -96,7 +96,7 @@ parseStatus peerNames = do
       | "peer: " `List.isPrefixOf` x =
           let publicKey = T.strip (T.pack (drop 6 x))
               pName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
-              (pData, rest) = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") [])
+              (pData, _rest) = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") [])
               (updatedPeerData, remaining) = ensureOfflineIfNoHandshake pData
            in (Set.elemAt 0 pName, updatedPeerData) : parseStatusLines peerNames_ remaining
       | otherwise = parseStatusLines peerNames_ xs
