@@ -60,10 +60,14 @@ executables:
 tests:
   wireguard-status-test:
     main: Spec.hs
-    source-dirs: test
+    source-dirs:
+      - lib
+      - test
     ghc-options:
       - -threaded
       - -rtsopts
       - -with-rtsopts=-N
     dependencies:
       - wireguard-status
+      - hspec
+      - bytestring

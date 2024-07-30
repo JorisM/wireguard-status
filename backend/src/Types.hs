@@ -18,6 +18,7 @@ data DataWithUnit = DataWithUnit
   { _dataWithUnitAmount :: Text,
     _dataWithUnitUnit :: Text
   }
+  deriving (Show, Eq)
 
 data PeerData = PeerData
   { peerDataStatus :: Text,
@@ -25,11 +26,14 @@ data PeerData = PeerData
     peerDataSent :: DataWithUnit,
     peerDataRest :: [String]
   }
+  deriving (Show, Eq)
 
-data Peer = Peer
+data Peer
+  = Peer
   { _peerName :: Text,
     _peerPeerData :: PeerData
   }
+  deriving (Show, Eq)
 
 type InvertedPeerNameMap = Map.Map PublicKey (Set Name)
 

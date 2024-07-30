@@ -1,0 +1,71 @@
+interface: wg0
+  public key: PAyvSyFJb/vPSFBPThRPps3QfpVMs73SS6A+GmAYDFU=
+  private key: (hidden)
+  listening port: 51820
+
+peer: mwwhIx4XYCo172dndNInME42kSjfnRM+wGH5/XZhnkI=
+  preshared key: (hidden)
+  endpoint: 129.41.47.6:28595
+  allowed ips: 10.252.1.6/32
+  latest handshake: 14 seconds ago
+  transfer: 1.17 MiB received, 1.59 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: 8Sw8SACyGK6+i+B3sonIr4iKx9OJ2vp+vaiGdD/hXhs=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:41674
+  allowed ips: 10.252.1.5/32
+  latest handshake: 45 seconds ago
+  transfer: 9.12 MiB received, 61.94 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: zhwBStLYVjtZhPtZAl9YOVsR12Ib5ohPkIwcxTkTM2g=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:43033
+  allowed ips: 10.252.1.1/32
+  latest handshake: 1 minute, 46 seconds ago
+  transfer: 567.77 MiB received, 2.21 GiB sent
+  persistent keepalive: every 15 seconds
+
+peer: kckHnlzSHFs+FD46zeMyMRFRfQ1VWHs4E2zJxAQvSC4=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.4/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: AAJCYjebY5VTQoVaewzaRbItFpnvGPVoum24tgHOWCM=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.2/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: o/+Z9s/hbSFlgFl9ntTxTxU2U8LVQhXP6By3DwD1oDY=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.3/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: +m7W6QIbzjLc5JH5UH34FhCI5ZDnaw7CIJjGvYSTiW0=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.7/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: pzT0eVxo+mJ5PBj5kzn7pcsBOqsMo/GtdQ/qv7a4ZyE=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.8/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
+peer: 6/aL+XZ03D3ceroL4B8U1JHnLnz63rOjirgjerJNLnc=
+  preshared key: (hidden)
+  endpoint: 85.195.206.105:51820
+  allowed ips: 10.252.1.9/32
+  transfer: 0 B received, 2.43 MiB sent
+  persistent keepalive: every 15 seconds
+
