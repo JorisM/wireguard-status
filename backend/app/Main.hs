@@ -15,7 +15,7 @@ import System.Environment (lookupEnv)
 import System.Process
 import Web.Scotty qualified as Scotty
 import Data.Text (pack)
-import Text.Parsec (char, digit, many1, parse, skipMany1, space, string, (<|>), ParsecT, try)
+import Text.Parsec (char, digit, many1, parse, skipMany1, space, string, (<|>), ParsecT, try, newline, endOfLine, many, noneOf, option, manyTill, lookAhead, anyChar, eof)
 import Text.Parsec.Text (Parser)
 import Data.Functor.Identity (Identity)
 
@@ -92,40 +92,35 @@ parseStatus peerNames = do
   where
     parseStatusLines :: InvertedPeerNameMap -> [String] -> [(Text, PeerData)]
     parseStatusLines _ [] = []
-    parseStatusLines peerNames_ (x : xs)
-      | "peer: " `List.isPrefixOf` x =
-          let publicKey = T.strip (T.pack (drop 6 x))
-              pName = fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
-              (pData, _rest) = parsePeerData xs (PeerData "" (DataWithUnit "" "") (DataWithUnit "" "") [])
-              (updatedPeerData, remaining) = ensureOfflineIfNoHandshake pData
-           in (Set.elemAt 0 pName, updatedPeerData) : parseStatusLines peerNames_ remaining
-      | otherwise = parseStatusLines peerNames_ xs
+    parseStatusLines peerNames_ statusLines = 
+      case parse (many peerDataParser) "" (unlines $ fmap T.unpack statusLines) of
+        Left _ -> []
+        Right peers -> peers
+      where
+        peerDataParser :: Parser (Text, PeerData)
+        peerDataParser = do
+          _ <- string "peer: "
+          publicKey <- T.pack <$> many1 (noneOf "\n")
+          _ <- newline
+          pName <- return $ fromMaybe (Set.singleton "Unknown") (Map.lookup publicKey peerNames_)
+          pData <- peerDataFieldsParser
+          return (Set.elemAt 0 pName, pData)
 
-    parsePeerData :: [String] -> PeerData -> (PeerData, [String])
-    parsePeerData [] acc_ = (acc_, [])
-    parsePeerData (x : xs) acc_
-      | "  latest handshake: " `List.isPrefixOf` x =
-          let handshake = T.strip (T.pack (drop 19 x))
-              status_ =
-                if handshake == "0 seconds ago" || " seconds ago" `T.isSuffixOf` handshake || " minute ago" `T.isSuffixOf` handshake || " minutes ago" `T.isSuffixOf` handshake
-                  then "Online"
-                  else "Offline"
-          in parsePeerData xs $ acc_ {peerDataStatus = status_, peerDataRest = xs}
-      | "  transfer: " `List.isPrefixOf` x =
-          let transferText = T.pack (drop 2 x)  -- Drop the leading "  " spaces
-              parseResult = parse transferLineParser "" transferText
-          in case parseResult of
-                Left _ -> parsePeerData xs acc_  -- Handle parse error, skip this line
-                Right (received, sent) ->
-                  parsePeerData xs $ acc_ {peerDataReceived = received, peerDataSent = sent, peerDataRest = xs}
-      | "peer: " `List.isPrefixOf` x = (acc_, x:xs)  -- Stop parsing current peer data on encountering next peer
-      | otherwise = parsePeerData xs $ acc_ {peerDataRest = xs}
+        peerDataFieldsParser :: Parser PeerData
+        peerDataFieldsParser = do
+          status <- option "Offline" (try latestHandshakeParser)
+          (received, sent) <- option (DataWithUnit "" "", DataWithUnit "" "") (try transferLineParser)
+          rest <- manyTill anyChar (try (lookAhead (string "peer: ")) <|> eof)
+          return $ PeerData status received sent (lines rest)
 
-    ensureOfflineIfNoHandshake :: PeerData -> (PeerData, [String])
-    ensureOfflineIfNoHandshake pdata =
-      if peerDataStatus pdata == ""
-        then (pdata {peerDataStatus = "Offline"}, peerDataRest pdata)
-        else (pdata, peerDataRest pdata)
+        latestHandshakeParser :: Parser Text
+        latestHandshakeParser = do
+          _ <- string "  latest handshake: "
+          handshake <- many1 (noneOf "\n")
+          _ <- newline
+          return $ if handshake == "0 seconds ago" || " seconds ago" `List.isSuffixOf` handshake || " minute ago" `List.isSuffixOf` handshake || " minutes ago" `List.isSuffixOf` handshake
+            then "Online"
+            else "Offline"
 
 invert :: (Ord k, Ord v) => Map.Map k v -> Map.Map v (Set k)
 invert = Map.foldlWithKey (\acc_ k v -> Map.insertWith Set.union v (Set.singleton k) acc_) Map.empty
@@ -144,11 +139,12 @@ amountAndUnitParser = do
 -- Define a parser for the entire transfer line
 transferLineParser :: Parser (DataWithUnit, DataWithUnit)
 transferLineParser = do
-  _ <- string "transfer: "
+  _ <- string "  transfer: "
   received <- amountAndUnitParser
   _ <- string " received, "
   sent <- amountAndUnitParser
   _ <- string " sent"
+  _ <- newline
   return (received, sent)
 
 main :: IO ()
