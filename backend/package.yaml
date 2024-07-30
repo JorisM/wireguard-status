@@ -70,4 +70,3 @@ tests:
     dependencies:
       - wireguard-status
       - hspec
-      - bytestring
