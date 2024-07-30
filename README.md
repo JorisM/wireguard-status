@@ -1,5 +1,7 @@
 # wireguard-status
 
+[![Docker Image CI](https://github.com/JorisM/wireguard-status/actions/workflows/docker-image.yml/badge.svg)](https://github.com/JorisM/wireguard-status/actions/workflows/docker-image.yml)
+
 a tool to see which clients are connected to your wireguard docker instance.
 it does this by parsing the clients from the wg0.conf and then checking via the docker socket which ones are connected + how much data is being transmitted.
 
