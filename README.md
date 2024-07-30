@@ -5,7 +5,6 @@ it does this by parsing the clients from the wg0.conf and then checking via the 
 
 ![image](https://github.com/user-attachments/assets/a7e7fd52-6ebb-486c-bc09-1929e4b2e397)
 
-
 https://hub.docker.com/repository/docker/jorisdm/wireguard-status/general
 
 # Use
@@ -26,12 +25,29 @@ once done, the only thing left is to set the name of the wireguard container to 
             - ./vpn/config:/config
             - /var/run/docker.sock:/var/run/docker.sock
 
-## Docker Compose
+# Development
 
-# Build
+install stack, purescript, spago, ghcid
 
+## Backend
+
+### Build
+
+    cd backend
     stack build
 
-# Build docker
+### Dev
+
+    cd backend
+    ghcid
+
+## Frontend
+
+###
+
+    cd frontend
+    spago build
+
+## Docker
 
     docker build .
