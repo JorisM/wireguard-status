@@ -118,8 +118,17 @@ handleAction :: forall output m. MonadAff m => Action -> H.HalogenM State Action
 handleAction = case _ of
   Initialize -> do
     _ <- H.subscribe =<< timer FetchAndUpdatePeers
+    fetchAndUpdatePeers
     pure unit
-  FetchAndUpdatePeers -> do
+  FetchAndUpdatePeers ->
+    fetchAndUpdatePeers
+  ToggleSortOrder -> do
+    H.modify_ \state -> state { sortOrderAsc = not state.sortOrderAsc }
+  SetSortCriteria criteria -> do
+    H.modify_ \state -> state { sortCriteria = criteria }
+
+  where
+  fetchAndUpdatePeers = do
     result <- liftAff fetchPeers
     case result of
       Left err -> do
@@ -132,10 +141,6 @@ handleAction = case _ of
         let onlinePeers = filter (\p -> p.data.status == "Online") peers
         let offlinePeers = filter (\p -> p.data.status == "Offline") peers
         H.modify_ \state -> state { onlinePeers = onlinePeers, offlinePeers = offlinePeers, errorMessage = Nothing }
-  ToggleSortOrder -> do
-    H.modify_ \state -> state { sortOrderAsc = not state.sortOrderAsc }
-  SetSortCriteria criteria -> do
-    H.modify_ \state -> state { sortCriteria = criteria }
 
 sortPeers :: SortCriteria -> Boolean -> Array Peer -> Array Peer
 sortPeers criteria asc peers =
