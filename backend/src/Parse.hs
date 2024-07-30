@@ -1,44 +1,67 @@
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Parse (parseConfig, parseStatus) where
 
 import Data.Functor.Identity (Identity)
 import Data.List qualified as List
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (catMaybes, fromMaybe)
 import Data.Set qualified as Set
 import Data.Text (Text, pack)
 import Data.Text qualified as T
-import Text.Parsec (ParsecT, char, digit, many1, parse, skipMany1, space, string, try, (<|>))
+import Text.Parsec (ParsecT, anyChar, char, digit, many, many1, manyTill, newline, parse, skipMany1, space, string, try, (<|>))
 import Text.Parsec.Text (Parser)
 import Types
 
-defaultAcc :: PeerNameMap
-defaultAcc = PeerNameMap {acc = Map.empty, currentPeerName = ""}
+data Accumulator = Accumulator
+  { acc :: PeerNameMap,
+    currentPeerName :: Text
+  }
 
--- Parse WireGuard configuration file to extract names
-parseConfig :: FilePath -> IO PeerNameMap
-parseConfig confFile = do
-  contents <- readFile confFile
-  let linesOfFiles = lines contents
-      peerMap = List.foldl' parseLine defaultAcc linesOfFiles
-  return peerMap
+defaultAcc :: Accumulator
+defaultAcc = Accumulator Map.empty T.empty
+
+parseConfig :: String -> PeerNameMap
+parseConfig contents = do
+  let parseResult = parse configFileParser "unknown-location" (pack contents)
+  case parseResult of
+    Left err -> error (show err)
+    Right peerMap -> peerMap
   where
-    parseLine accumulator line
-      | "# Name: " `List.isPrefixOf` line =
-          accumulator
-            { acc = Map.insert (T.strip (T.pack (drop 8 line))) T.empty (acc accumulator),
-              currentPeerName = T.strip (T.pack (drop 8 line))
-            }
-      | "PublicKey = " `List.isPrefixOf` line =
-          accumulator
-            { acc = Map.insert (currentPeerName accumulator) (T.strip (T.pack (drop 11 line))) (acc accumulator)
-            }
-      | otherwise = accumulator
+    configFileParser :: Parser PeerNameMap
+    configFileParser = do
+      result <- many parseLine
+      let result_ = catMaybes result
+      return $ acc $ foldl updatePeerMap defaultAcc result_
 
-tupleToPeer :: (Text, PeerData) -> Peer
-tupleToPeer (name, peerData) = Peer name peerData
+    parseLine :: Parser (Maybe (Text, Text))
+    parseLine = try parseName <|> try parsePublicKey <|> skipLine
+
+    parseName :: Parser (Maybe (Text, Text))
+    parseName = do
+      _ <- string "# Name: "
+      name <- manyTill anyChar newline
+      return $ Just (T.strip (T.pack name), T.empty)
+
+    parsePublicKey :: Parser (Maybe (Text, Text))
+    parsePublicKey = do
+      _ <- string "PublicKey = "
+      publicKey <- manyTill anyChar newline
+      return $ Just (T.empty, T.strip (T.pack publicKey))
+
+    skipLine :: Parser (Maybe (Text, Text))
+    skipLine = manyTill anyChar newline >> return Nothing
+
+    updatePeerMap :: Accumulator -> (Text, Text) -> Accumulator
+    updatePeerMap acc_ (name, key)
+      | not (T.null name) = acc_ {currentPeerName = name}
+      | not (T.null key) =
+          let name = currentPeerName acc_
+              newAcc = Map.insert name key (acc acc_)
+           in acc_ {acc = newAcc, currentPeerName = T.empty}
+      | otherwise = acc_
 
 -- Get WireGuard status and append names
 parseStatus :: InvertedPeerNameMap -> String -> [Peer]
@@ -84,24 +107,27 @@ parseStatus peerNamesFromWgConfig dockerOutput = do
         then (pdata {peerDataStatus = "Offline"}, peerDataRest pdata)
         else (pdata, peerDataRest pdata)
 
--- Define a parser for amounts and units
-amountAndUnitParser :: ParsecT Text () Identity DataWithUnit
-amountAndUnitParser = do
-  amount <- many1 (digit <|> char '.')
-  skipMany1 space
-  unit <-
-    try (string "KiB")
-      <|> try (string "MiB")
-      <|> try (string "GiB")
-      <|> string "B"
-  return $ DataWithUnit (pack amount) (pack unit)
+    tupleToPeer :: (Text, PeerData) -> Peer
+    tupleToPeer (name, peerData) = Peer name peerData
 
--- Define a parser for the entire transfer line
-transferLineParser :: Parser (DataWithUnit, DataWithUnit)
-transferLineParser = do
-  _ <- string "transfer: "
-  received <- amountAndUnitParser
-  _ <- string " received, "
-  sent <- amountAndUnitParser
-  _ <- string " sent"
-  return (received, sent)
+    -- Define a parser for amounts and units
+    amountAndUnitParser :: ParsecT Text () Identity DataWithUnit
+    amountAndUnitParser = do
+      amount <- many1 (digit <|> char '.')
+      skipMany1 space
+      unit <-
+        try (string "KiB")
+          <|> try (string "MiB")
+          <|> try (string "GiB")
+          <|> string "B"
+      return $ DataWithUnit (pack amount) (pack unit)
+
+    -- Define a parser for the entire transfer line
+    transferLineParser :: Parser (DataWithUnit, DataWithUnit)
+    transferLineParser = do
+      _ <- string "transfer: "
+      received <- amountAndUnitParser
+      _ <- string " received, "
+      sent <- amountAndUnitParser
+      _ <- string " sent"
+      return (received, sent)

@@ -1,0 +1,127 @@
+[Interface]
+Address = 10.252.1.0/24
+ListenPort = 51820
+PrivateKey = censored
+MTU = 1450
+PostUp = iptables -A FORWARD -i %i -j ACCEPT; iptables -A FORWARD -o %i -j ACCEPT; iptables -t nat -A POSTROUTING -o eth+ -j MASQUERADE
+PreDown = 
+PostDown = iptables -D FORWARD -i %i -j ACCEPT; iptables -D FORWARD -o %i -j ACCEPT; iptables -t nat -D POSTROUTING -o eth+ -j MASQUERADE
+Table = auto
+
+
+# ID:           censored
+# Name:         Joris
+# Email:        censored
+# Telegram:     134158820
+# Created at:   2024-07-08 14:21:36.186485661 +0000 UTC
+# Update at:    2024-07-08 14:31:55.312164471 +0000 UTC
+[Peer]
+PublicKey = zhwBStLYVjtZhPtZAl9YOVsR12Ib5ohPkIwcxTkTM2g=
+PresharedKey = censored
+AllowedIPs = 10.252.1.1/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Joris
+# Email:        censored
+# Telegram:     
+# Created at:   2024-07-08 14:24:57.134443894 +0000 UTC
+# Update at:    2024-07-08 14:32:00.243034563 +0000 UTC
+[Peer]
+PublicKey = AAJCYjebY5VTQoVaewzaRbItFpnvGPVoum24tgHOWCM=
+PresharedKey = censored
+AllowedIPs = 10.252.1.2/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Nathan
+# Email:        
+# Telegram:     censored
+# Created at:   2024-07-08 14:26:17.709064632 +0000 UTC
+# Update at:    2024-07-08 14:32:04.491420713 +0000 UTC
+[Peer]
+PublicKey = o/+Z9s/hbSFlgFl9ntTxTxU2U8LVQhXP6By3DwD1oDY=
+PresharedKey = B5zRiXGnClUIDdJHWnISu2X7WIULd9aQEd+QR0AiDG4=
+AllowedIPs = 10.252.1.3/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Sijuk
+# Email:        
+# Telegram:     censored
+# Created at:   2024-07-08 14:26:48.219088702 +0000 UTC
+# Update at:    2024-07-08 14:32:09.220273754 +0000 UTC
+[Peer]
+PublicKey = kckHnlzSHFs+FD46zeMyMRFRfQ1VWHs4E2zJxAQvSC4=
+PresharedKey = censored
+AllowedIPs = 10.252.1.4/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Anna
+# Email:        censored
+# Telegram:     
+# Created at:   2024-07-08 14:28:50.864640137 +0000 UTC
+# Update at:    2024-07-27 13:07:16.686398477 +0000 UTC
+[Peer]
+PublicKey = 8Sw8SACyGK6+i+B3sonIr4iKx9OJ2vp+vaiGdD/hXhs=
+PresharedKey = censored
+AllowedIPs = 10.252.1.5/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Tsenit
+# Email:        
+# Telegram:     
+# Created at:   2024-07-08 15:18:45.702633636 +0000 UTC
+# Update at:    2024-07-08 15:18:45.702633636 +0000 UTC
+[Peer]
+PublicKey = mwwhIx4XYCo172dndNInME42kSjfnRM+wGH5/XZhnkI=
+PresharedKey = censored
+AllowedIPs = 10.252.1.6/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Vera
+# Email:        
+# Telegram:     
+# Created at:   2024-07-08 15:25:06.018229312 +0000 UTC
+# Update at:    2024-07-27 13:07:28.576930262 +0000 UTC
+[Peer]
+PublicKey = +m7W6QIbzjLc5JH5UH34FhCI5ZDnaw7CIJjGvYSTiW0=
+PresharedKey = censored
+AllowedIPs = 10.252.1.7/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         This
+# Email:        
+# Telegram:     
+# Created at:   2024-07-08 15:25:13.937628 +0000 UTC
+# Update at:    2024-07-27 13:07:46.951342072 +0000 UTC
+[Peer]
+PublicKey = pzT0eVxo+mJ5PBj5kzn7pcsBOqsMo/GtdQ/qv7a4ZyE=
+PresharedKey = censored
+AllowedIPs = 10.252.1.8/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
+
+# ID:           censored
+# Name:         Tsenit Desktop
+# Email:        censored
+# Telegram:     
+# Created at:   2024-07-27 11:21:00.54984081 +0000 UTC
+# Update at:    2024-07-27 11:21:00.54984081 +0000 UTC
+[Peer]
+PublicKey = 6/aL+XZ03D3ceroL4B8U1JHnLnz63rOjirgjerJNLnc=
+PresharedKey = censored
+AllowedIPs = 10.252.1.9/32
+PersistentKeepalive = 15
+Endpoint = censored:51820
