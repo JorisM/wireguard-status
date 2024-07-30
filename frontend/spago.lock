@@ -98,7 +98,7 @@ workspace:
         - web-xhr
   package_set:
     address:
-      registry: 55.0.0
+      registry: 56.0.0
     compiler: ">=0.15.15 <0.16.0"
     content:
       abc-parser: 2.0.1
@@ -199,9 +199,9 @@ workspace:
       echarts-simple: 0.0.1
       effect: 4.0.0
       either: 6.1.0
-      elmish: 0.11.4
+      elmish: 0.12.0
       elmish-enzyme: 0.1.1
-      elmish-hooks: 0.10.2
+      elmish-hooks: 0.10.3
       elmish-html: 0.8.3
       elmish-testing-library: 0.3.2
       email-validate: 7.0.0
@@ -253,7 +253,6 @@ workspace:
       generate-values: 1.0.1
       generic-router: 0.0.1
       geojson: 0.0.5
-      geometry-plane: 1.1.0
       gojs: 0.1.1
       grain: 3.0.0
       grain-router: 3.0.0
@@ -378,7 +377,7 @@ workspace:
       node-process: 11.2.0
       node-readline: 8.1.1
       node-sqlite3: 8.0.0
-      node-stream-pipes: 2.1.5
+      node-stream-pipes: 2.1.6
       node-streams: 9.0.0
       node-tls: 0.3.1
       node-url: 7.0.1
@@ -423,6 +422,7 @@ workspace:
       precise-datetime: 7.0.0
       prelude: 6.0.1
       prettier-printer: 3.0.0
+      priority-queue: 0.1.0
       profunctor: 6.0.1
       profunctor-lenses: 8.0.0
       protobuf: 4.3.0
@@ -494,10 +494,11 @@ workspace:
       soundfonts: 4.1.0
       sparse-matrices: 2.0.0
       sparse-polynomials: 3.0.0
-      spec: 7.6.0
+      spec: 7.6.1
       spec-discovery: 8.3.0
-      spec-mocha: 5.1.0
-      spec-quickcheck: 5.0.1
+      spec-mocha: 5.1.1
+      spec-quickcheck: 5.0.2
+      spec-reporter-xunit: 0.7.1
       splitmix: 2.1.0
       ssrs: 1.0.0
       st: 6.2.0
@@ -519,6 +520,7 @@ workspace:
       thermite: 6.3.1
       thermite-dom: 0.3.1
       these: 6.0.0
+      threading: 0.0.3
       toestand: 0.9.0
       transformation-matrix: 1.0.1
       transformers: 6.1.0
