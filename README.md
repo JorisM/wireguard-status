@@ -2,7 +2,7 @@
 
 [![Docker Image CI](https://github.com/JorisM/wireguard-status/actions/workflows/docker-image.yml/badge.svg)](https://github.com/JorisM/wireguard-status/actions/workflows/docker-image.yml)
 
-a tool to see which clients are connected to your wireguard docker instance.
+a tool to see which clients are connected to your wireguard docker instance when using wireguard-ui (https://github.com/ngoduykhanh/wireguard-ui).
 it does this by parsing the clients from the wg0.conf and then checking via the docker socket which ones are connected + how much data is being transmitted.
 
 ![image](https://github.com/user-attachments/assets/a7e7fd52-6ebb-486c-bc09-1929e4b2e397)

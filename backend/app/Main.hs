@@ -10,7 +10,6 @@ import Network.Wai.Middleware.Static (addBase, noDots, staticPolicy, (>->))
 import Parse (parseConfig, parseStatus)
 import System.Environment (lookupEnv)
 import System.Process
-import Types
 import Web.Scotty qualified as Scotty
 
 invert :: (Ord k, Ord v) => Map.Map k v -> Map.Map v (Set k)
@@ -20,8 +19,9 @@ main :: IO ()
 main = do
   wgConfFile <- fromMaybe "vpn/config/wg0.conf" <$> lookupEnv "WG_CONF_FILE"
   nameOfWireguardContainer <- fromMaybe "wireguard" <$> lookupEnv "WG_CONTAINER_NAME"
-  peerNames <- parseConfig wgConfFile
-  let invertedPeerNames = invert $ acc peerNames
+  configContents <- readFile wgConfFile
+  let peerNames = parseConfig configContents
+  let invertedPeerNames = invert peerNames
 
   Scotty.scotty 8888 $ do
     Scotty.middleware $ staticPolicy (noDots >-> addBase "static")

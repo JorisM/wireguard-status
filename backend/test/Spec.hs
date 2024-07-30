@@ -14,13 +14,19 @@ import Prelude
 
 main :: IO ()
 main = do
-  dockerOutput1 <- liftIO $ Prelude.readFile "test_files/docker-output-1.txt"
-  expected1 <- liftIO $ Prelude.readFile "test_files/expected-1.json"
+  dockerOutput1 <- liftIO $ Prelude.readFile "test_files/status/docker-output-1.txt"
+  expected1 <- liftIO $ Prelude.readFile "test_files/status/expected-1.json"
+  configInput1 <- liftIO $ Prelude.readFile "test_files/config/input-1.txt"
+  configExpected1 <- liftIO $ Prelude.readFile "test_files/config/expected-1.json"
   hspec $ do
     describe "Wireguard-Status" $ do
       it "can read a wireguard docker output" $ do
         let actual = TL.unpack . TL.decodeUtf8 $ encode $ parseStatus invertedPeerNames dockerOutput1
         actual `shouldBe` expected1
+    describe "Wireguard-Status Config" $ do
+      it "can read a wireguard config" $ do
+        let actual = TL.unpack . TL.decodeUtf8 $ encode $ parseConfig configInput1
+        actual `shouldBe` configExpected1
   where
     invertedPeerNames :: InvertedPeerNameMap
     invertedPeerNames =

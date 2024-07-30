@@ -12,7 +12,7 @@ type Name = Text
 
 type PublicKey = Text
 
-data PeerNameMap = PeerNameMap {acc :: Map.Map Name PublicKey, currentPeerName :: Name}
+type PeerNameMap = Map.Map PublicKey Name
 
 data DataWithUnit = DataWithUnit
   { _dataWithUnitAmount :: Text,
