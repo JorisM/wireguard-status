@@ -1,0 +1,10 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: wireguard-status
+  annotations:
+    github.com/project-slug: JorisM/wireguard-status
+spec:
+  type: other
+  lifecycle: unknown
+  owner: JorisM
