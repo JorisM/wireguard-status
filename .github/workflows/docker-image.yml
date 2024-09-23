@@ -22,11 +22,13 @@ jobs:
         working-directory: backend
       - run: stack haddock
         working-directory: backend
-      - name: Upload Haddock Documentation
-        uses: actions/upload-artifact@v3
+
+      - name: Deploy Haddock Documentation to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          name: haddock-docs
-          path: /home/runner/.stack/snapshots/x86_64-linux-tinfo6/*/9.6.5/doc/
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: /home/runner/.stack/snapshots/x86_64-linux-tinfo6/*/9.6.5/doc/
+
      
   push_to_registry:
     name: Push Docker image to Docker Hub
