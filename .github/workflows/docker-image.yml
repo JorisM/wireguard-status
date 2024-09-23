@@ -37,7 +37,7 @@ jobs:
         uses: actions/upload-artifact@v3
         with:
           name: haddock-docs
-          path: .stack-work/dist/*/ghc-9.6.5/doc/html/wireguard-status/
+          path: /home/runner/.stack/snapshots/x86_64-linux-tinfo6/*/9.6.5/doc/
 
   push_to_registry:
     name: Push Docker image to Docker Hub
