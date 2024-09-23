@@ -20,17 +20,6 @@ jobs:
           stack-version: "latest"
       - run: stack test
         working-directory: backend
-
-  generate_docs:
-    name: Generate Haddock Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: haskell-actions/setup@v2
-        with:
-          ghc-version: "9.6.5"
-          enable-stack: true
-          stack-version: "latest"
       - run: stack haddock
         working-directory: backend
       - name: Upload Haddock Documentation
@@ -38,7 +27,7 @@ jobs:
         with:
           name: haddock-docs
           path: /home/runner/.stack/snapshots/x86_64-linux-tinfo6/*/9.6.5/doc/
-
+     
   push_to_registry:
     name: Push Docker image to Docker Hub
     runs-on: ubuntu-latest
