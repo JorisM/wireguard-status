@@ -1,0 +1,1079 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Module : Caching.ExpiringCacheMap.OrdECM</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright: (c) 2014 Edward L. Blake</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License: BSD-style</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer: Edward L. Blake &lt;edwardlblake@gmail.com&gt;</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Stability: experimental</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Portability: portable</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- A cache that holds values for a length of time that uses 'Ord' keys with </span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- &quot;Data.Map.Strict&quot;.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-13"></span><span class="hs-comment">-- An example of creating a cache for accessing files:</span><span>
+</span><span id="line-14"></span><span class="hs-comment">--</span><span>
+</span><span id="line-15"></span><span class="hs-comment">-- &gt; {-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-16"></span><span class="hs-comment">-- &gt; </span><span>
+</span><span id="line-17"></span><span class="hs-comment">-- &gt; import Caching.ExpiringCacheMap.OrdECM (newECMIO, lookupECM, CacheSettings(..), consistentDuration)</span><span>
+</span><span id="line-18"></span><span class="hs-comment">-- &gt; </span><span>
+</span><span id="line-19"></span><span class="hs-comment">-- &gt; import qualified Data.Time.Clock.POSIX as POSIX (POSIXTime, getPOSIXTime)</span><span>
+</span><span id="line-20"></span><span class="hs-comment">-- &gt; import qualified Data.ByteString.Char8 as BS</span><span>
+</span><span id="line-21"></span><span class="hs-comment">-- &gt; import System.IO (withFile, IOMode(ReadMode))</span><span>
+</span><span id="line-22"></span><span class="hs-comment">-- &gt; </span><span>
+</span><span id="line-23"></span><span class="hs-comment">-- &gt; example = do</span><span>
+</span><span id="line-24"></span><span class="hs-comment">-- &gt;   filecache &lt;- newECMIO</span><span>
+</span><span id="line-25"></span><span class="hs-comment">-- &gt;         (consistentDuration 100 -- Duration between access and expiry time of each item</span><span>
+</span><span id="line-26"></span><span class="hs-comment">-- &gt;           (\state id -&gt; do BS.putStrLn &quot;Reading a file again...&quot;</span><span>
+</span><span id="line-27"></span><span class="hs-comment">-- &gt;                            withFile (case id :: BS.ByteString of</span><span>
+</span><span id="line-28"></span><span class="hs-comment">-- &gt;                                        &quot;file1&quot; -&gt; &quot;file1.txt&quot;</span><span>
+</span><span id="line-29"></span><span class="hs-comment">-- &gt;                                        &quot;file2&quot; -&gt; &quot;file2.txt&quot;)</span><span>
+</span><span id="line-30"></span><span class="hs-comment">-- &gt;                               ReadMode $</span><span>
+</span><span id="line-31"></span><span class="hs-comment">-- &gt;                               \fh -&gt; do content &lt;- BS.hGetContents fh</span><span>
+</span><span id="line-32"></span><span class="hs-comment">-- &gt;                                         return $! (state, content)))</span><span>
+</span><span id="line-33"></span><span class="hs-comment">-- &gt;         (do time &lt;- POSIX.getPOSIXTime</span><span>
+</span><span id="line-34"></span><span class="hs-comment">-- &gt;             return (round (time * 100)))</span><span>
+</span><span id="line-35"></span><span class="hs-comment">-- &gt;         1 -- Time check frequency: (accumulator `mod` this_number) == 0.</span><span>
+</span><span id="line-36"></span><span class="hs-comment">-- &gt;         (CacheWithLRUList</span><span>
+</span><span id="line-37"></span><span class="hs-comment">-- &gt;           6     -- Expected size of key-value map when removing elements.</span><span>
+</span><span id="line-38"></span><span class="hs-comment">-- &gt;           6     -- Size of map when to remove items from key-value map.</span><span>
+</span><span id="line-39"></span><span class="hs-comment">-- &gt;           12    -- Size of list when to compact</span><span>
+</span><span id="line-40"></span><span class="hs-comment">-- &gt;           )</span><span>
+</span><span id="line-41"></span><span class="hs-comment">-- &gt;   </span><span>
+</span><span id="line-42"></span><span class="hs-comment">-- &gt;   -- Use lookupECM whenever the contents of &quot;file1&quot; is needed.</span><span>
+</span><span id="line-43"></span><span class="hs-comment">-- &gt;   b &lt;- lookupECM filecache &quot;file1&quot;</span><span>
+</span><span id="line-44"></span><span class="hs-comment">-- &gt;   BS.putStrLn b</span><span>
+</span><span id="line-45"></span><span class="hs-comment">-- &gt;   return ()</span><span>
+</span><span id="line-46"></span><span class="hs-comment">-- &gt; </span><span>
+</span><span id="line-47"></span><span class="hs-comment">--</span><span>
+</span><span id="line-48"></span><span>
+</span><span id="line-49"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Caching.ExpiringCacheMap.OrdECM</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-50"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Create cache</span></span><span>
+</span><span id="line-51"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMIO"><span class="hs-identifier">newECMIO</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-52"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMForM"><span class="hs-identifier">newECMForM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-53"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#consistentDuration"><span class="hs-identifier">consistentDuration</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-54"></span><span>    </span><span>
+</span><span id="line-55"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Request value from cache</span></span><span>
+</span><span id="line-56"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#lookupECM"><span class="hs-identifier">lookupECM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-57"></span><span>    </span><span>
+</span><span id="line-58"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Value request function state</span></span><span>
+</span><span id="line-59"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#getValReqState"><span class="hs-identifier">getValReqState</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-60"></span><span>    </span><span>
+</span><span id="line-61"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Invalidate cache</span></span><span>
+</span><span id="line-62"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidate"><span class="hs-identifier">invalidate</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-63"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidateCache"><span class="hs-identifier">invalidateCache</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-64"></span><span>    </span><span>
+</span><span id="line-65"></span><span>    </span><span class="annot"><span class="hs-comment">-- * List keys</span></span><span>
+</span><span id="line-66"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#keysCached"><span class="hs-identifier">keysCached</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-67"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#keysNotExpired"><span class="hs-identifier">keysNotExpired</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-68"></span><span>    </span><span>
+</span><span id="line-69"></span><span>    </span><span class="annot"><span class="hs-comment">-- * Type</span></span><span>
+</span><span id="line-70"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier">ECM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-71"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html#CacheSettings"><span class="hs-identifier">CacheSettings</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span>
+</span><span id="line-72"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-73"></span><span>
+</span><span id="line-74"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Control.Concurrent.MVar</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">MV</span></span><span>
+</span><span id="line-75"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Map.Strict</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">M</span></span><span>
+</span><span id="line-76"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.List</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">L</span></span><span>
+</span><span id="line-77"></span><span>
+</span><span id="line-78"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html"><span class="hs-identifier">Caching.ExpiringCacheMap.Internal.Internal</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier">updateUses</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-identifier">detECM</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-identifier">detNotExpired</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-79"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html"><span class="hs-identifier">Caching.ExpiringCacheMap.Types</span></a></span><span>
+</span><span id="line-80"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html"><span class="hs-identifier">Caching.ExpiringCacheMap.Internal.Types</span></a></span><span>
+</span><span id="line-81"></span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- | Create a new expiring cache for retrieving uncached values via 'IO'</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- interaction (such as in the case of reading a file from disk), with</span><span>
+</span><span id="line-84"></span><span class="hs-comment">-- a shared state lock via an 'MV.MVar' to manage cache state.</span><span>
+</span><span id="line-85"></span><span class="hs-comment">--</span><span>
+</span><span id="line-86"></span><span class="hs-comment">-- Value request and time check request functions are provided as arguments.</span><span>
+</span><span id="line-87"></span><span class="hs-comment">--</span><span>
+</span><span id="line-88"></span><span class="hs-comment">-- The time check frequency value has to be 1 or higher, with higher values</span><span>
+</span><span id="line-89"></span><span class="hs-comment">-- postponing time checks for longer periods of time.</span><span>
+</span><span id="line-90"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-91"></span><span class="hs-comment">-- A cache setting specifies how the cache should remove entries when the</span><span>
+</span><span id="line-92"></span><span class="hs-comment">-- cache becomes a certain size. The only constructor for this is</span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- 'CacheWithLRUList'.</span><span>
+</span><span id="line-94"></span><span class="hs-comment">--</span><span>
+</span><span id="line-95"></span><span id="local-6989586621679054444"><span id="local-6989586621679054445"><span id="local-6989586621679054447"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMIO"><span class="hs-identifier hs-type">newECMIO</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054444"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054445"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054444"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054445"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054447"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span> </span><span>
+</span><span id="line-97"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html#CacheSettings"><span class="hs-identifier hs-type">CacheSettings</span></a></span><span>
+</span><span id="line-98"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">MV.MVar</span></span><span> </span><span class="annot"><a href="#local-6989586621679054445"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054444"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054447"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span></span><span>
+</span><span id="line-99"></span><span id="newECMIO"><span class="annot"><span class="annottext">newECMIO :: forall k s v.
+Ord k =&gt;
+(Maybe s -&gt; k -&gt; IO (TimeUnits, (Maybe s, v)))
+-&gt; IO TimeUnits
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; IO (ECM IO MVar s Map k v)
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMIO"><span class="hs-identifier hs-var hs-var">newECMIO</span></a></span></span><span> </span><span id="local-6989586621679054617"><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; IO (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054617"><span class="hs-identifier hs-var">retr</span></a></span></span><span> </span><span id="local-6989586621679054618"><span class="annot"><span class="annottext">IO TimeUnits
+</span><a href="#local-6989586621679054618"><span class="hs-identifier hs-var">gettime</span></a></span></span><span> </span><span id="local-6989586621679054619"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054619"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span></span><span> </span><span id="local-6989586621679054620"><span class="annot"><span class="annottext">CacheSettings
+</span><a href="#local-6989586621679054620"><span class="hs-identifier hs-var">settings</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-100"></span><span>  </span><span class="annot"><span class="annottext">(Maybe s -&gt; k -&gt; IO (TimeUnits, (Maybe s, v)))
+-&gt; IO TimeUnits
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; ECMNewState IO MVar s Map k v
+-&gt; ECMEnterState IO MVar s Map k v
+-&gt; ECMReadState IO MVar s Map k v
+-&gt; IO (ECM IO MVar s Map k v)
+forall (m1 :: * -&gt; *) (m2 :: * -&gt; *) k s v (mv :: * -&gt; *).
+(Monad m1, Monad m2, Ord k) =&gt;
+(Maybe s -&gt; k -&gt; m1 (TimeUnits, (Maybe s, v)))
+-&gt; m1 TimeUnits
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; ECMNewState m2 mv s Map k v
+-&gt; ECMEnterState m1 mv s Map k v
+-&gt; ECMReadState m1 mv s Map k v
+-&gt; m2 (ECM m1 mv s Map k v)
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMForM"><span class="hs-identifier hs-var">newECMForM</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; IO (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054617"><span class="hs-identifier hs-var">retr</span></a></span><span> </span><span class="annot"><span class="annottext">IO TimeUnits
+</span><a href="#local-6989586621679054618"><span class="hs-identifier hs-var">gettime</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054619"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span><span> </span><span class="annot"><span class="annottext">CacheSettings
+</span><a href="#local-6989586621679054620"><span class="hs-identifier hs-var">settings</span></a></span><span>
+</span><span id="line-101"></span><span>    </span><span class="annot"><span class="annottext">ECMNewState IO MVar s Map k v
+forall a. a -&gt; IO (MVar a)
+</span><span class="hs-identifier hs-var">MV.newMVar</span></span><span> </span><span class="annot"><span class="annottext">ECMEnterState IO MVar s Map k v
+forall a b. MVar a -&gt; (a -&gt; IO (a, b)) -&gt; IO b
+</span><span class="hs-identifier hs-var">MV.modifyMVar</span></span><span> </span><span class="annot"><span class="annottext">ECMReadState IO MVar s Map k v
+forall a. MVar a -&gt; IO a
+</span><span class="hs-identifier hs-var">MV.readMVar</span></span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span class="hs-comment">-- | Create a new expiring cache along arbitrary monads with provided</span><span>
+</span><span id="line-104"></span><span class="hs-comment">-- functions to create cache state in 'Monad' m2, and modify and read</span><span>
+</span><span id="line-105"></span><span class="hs-comment">-- cache state in 'Monad' m1.</span><span>
+</span><span id="line-106"></span><span class="hs-comment">--</span><span>
+</span><span id="line-107"></span><span class="hs-comment">-- 'newECMIO' is just a wrapper to this function with 'MV.MVar' functions:</span><span>
+</span><span id="line-108"></span><span class="hs-comment">--</span><span>
+</span><span id="line-109"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-110"></span><span class="hs-comment">--  newECMIO retr gettime timecheckmodulo cachesettings =</span><span>
+</span><span id="line-111"></span><span class="hs-comment">--    newECMForM retr gettime timecheckmodulo cachesettings</span><span>
+</span><span id="line-112"></span><span class="hs-comment">--      'MV.newMVar' 'MV.modifyMVar' 'MV.readMVar'</span><span>
+</span><span id="line-113"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-114"></span><span class="hs-comment">--</span><span>
+</span><span id="line-115"></span><span class="hs-comment">-- Value request and time check request functions are provided as arguments.</span><span>
+</span><span id="line-116"></span><span class="hs-comment">--</span><span>
+</span><span id="line-117"></span><span class="hs-comment">-- The time check frequency value has to be 1 or higher, with higher values</span><span>
+</span><span id="line-118"></span><span class="hs-comment">-- postponing time checks for longer periods of time.</span><span>
+</span><span id="line-119"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-120"></span><span class="hs-comment">-- A cache setting specifies how the cache should remove entries when the</span><span>
+</span><span id="line-121"></span><span class="hs-comment">-- cache becomes a certain size. The only constructor for this is</span><span>
+</span><span id="line-122"></span><span class="hs-comment">-- 'CacheWithLRUList'.</span><span>
+</span><span id="line-123"></span><span class="hs-comment">--</span><span>
+</span><span id="line-124"></span><span id="local-6989586621679054459"><span id="local-6989586621679054460"><span id="local-6989586621679054461"><span id="local-6989586621679054462"><span id="local-6989586621679054463"><span id="local-6989586621679054464"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMForM"><span class="hs-identifier hs-type">newECMForM</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054460"><span class="hs-identifier hs-type">m2</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054463"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-125"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span>
+</span><span id="line-126"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html#CacheSettings"><span class="hs-identifier hs-type">CacheSettings</span></a></span><span>
+</span><span id="line-127"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECMNewState"><span class="hs-identifier hs-type">ECMNewState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054460"><span class="hs-identifier hs-type">m2</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054464"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054463"><span class="hs-identifier hs-type">v</span></a></span><span>
+</span><span id="line-128"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECMEnterState"><span class="hs-identifier hs-type">ECMEnterState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054464"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054463"><span class="hs-identifier hs-type">v</span></a></span><span>
+</span><span id="line-129"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECMReadState"><span class="hs-identifier hs-type">ECMReadState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054464"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054463"><span class="hs-identifier hs-type">v</span></a></span><span>
+</span><span id="line-130"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054460"><span class="hs-identifier hs-type">m2</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054459"><span class="hs-identifier hs-type">m1</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054464"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054462"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054461"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054463"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span></span></span></span></span><span>
+</span><span id="line-131"></span><span id="newECMForM"><span class="annot"><span class="annottext">newECMForM :: forall (m1 :: * -&gt; *) (m2 :: * -&gt; *) k s v (mv :: * -&gt; *).
+(Monad m1, Monad m2, Ord k) =&gt;
+(Maybe s -&gt; k -&gt; m1 (TimeUnits, (Maybe s, v)))
+-&gt; m1 TimeUnits
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; ECMNewState m2 mv s Map k v
+-&gt; ECMEnterState m1 mv s Map k v
+-&gt; ECMReadState m1 mv s Map k v
+-&gt; m2 (ECM m1 mv s Map k v)
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#newECMForM"><span class="hs-identifier hs-var hs-var">newECMForM</span></a></span></span><span> </span><span id="local-6989586621679054636"><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m1 (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054636"><span class="hs-identifier hs-var">retr</span></a></span></span><span> </span><span id="local-6989586621679054637"><span class="annot"><span class="annottext">m1 TimeUnits
+</span><a href="#local-6989586621679054637"><span class="hs-identifier hs-var">gettime</span></a></span></span><span> </span><span id="local-6989586621679054638"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054638"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html#CacheWithLRUList"><span class="hs-identifier hs-type">CacheWithLRUList</span></a></span><span> </span><span id="local-6989586621679054639"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054639"><span class="hs-identifier hs-var">minimumkeep</span></a></span></span><span> </span><span id="local-6989586621679054640"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054640"><span class="hs-identifier hs-var">removalsize</span></a></span></span><span> </span><span id="local-6989586621679054641"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054641"><span class="hs-identifier hs-var">compactlistsize</span></a></span></span><span class="hs-special">)</span><span>
+</span><span id="line-132"></span><span>           </span><span id="local-6989586621679054642"><span class="annot"><span class="annottext">ECMNewState m2 mv s Map k v
+</span><a href="#local-6989586621679054642"><span class="hs-identifier hs-var">newstate</span></a></span></span><span> </span><span id="local-6989586621679054643"><span class="annot"><span class="annottext">ECMEnterState m1 mv s Map k v
+</span><a href="#local-6989586621679054643"><span class="hs-identifier hs-var">enterstate</span></a></span></span><span> </span><span id="local-6989586621679054644"><span class="annot"><span class="annottext">ECMReadState m1 mv s Map k v
+</span><a href="#local-6989586621679054644"><span class="hs-identifier hs-var">readstate</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-133"></span><span>  </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054638"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;=</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-134"></span><span>    </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">[Char] -&gt; m2 (ECM m1 mv s Map k v)
+forall a. HasCallStack =&gt; [Char] -&gt; a
+</span><span class="hs-identifier hs-var">error</span></span><span> </span><span class="annot"><span class="annottext">[Char]
+</span><span class="hs-string">&quot;Modulo time check must be 1 or higher.&quot;</span></span><span>
+</span><span id="line-135"></span><span>    </span><span class="hs-keyword">else</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-136"></span><span>      </span><span id="local-6989586621679054647"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054647"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMNewState m2 mv s Map k v
+</span><a href="#local-6989586621679054642"><span class="hs-identifier hs-var">newstate</span></a></span><span> </span><span class="annot"><span class="annottext">ECMNewState m2 mv s Map k v -&gt; ECMNewState m2 mv s Map k v
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s Map k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">Maybe s
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">M.empty</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">0</span></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-137"></span><span>      </span><span class="annot"><span class="annottext">ECM m1 mv s Map k v -&gt; m2 (ECM m1 mv s Map k v)
+forall a. a -&gt; m2 a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(ECM m1 mv s Map k v -&gt; m2 (ECM m1 mv s Map k v))
+-&gt; ECM m1 mv s Map k v -&gt; m2 (ECM m1 mv s Map k v)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(mv (CacheState s Map k v),
+ Maybe s -&gt; k -&gt; m1 (TimeUnits, (Maybe s, v)), m1 TimeUnits,
+ TimeUnits, ECMIncr, TimeUnits, TimeUnits,
+ ECMEnterState m1 mv s Map k v, ECMReadState m1 mv s Map k v)
+-&gt; ECM m1 mv s Map k v
+forall (a :: * -&gt; *) (b :: * -&gt; *) s (m :: * -&gt; * -&gt; *) k v.
+(b (CacheState s m k v),
+ Maybe s -&gt; k -&gt; a (TimeUnits, (Maybe s, v)), a TimeUnits,
+ TimeUnits, ECMIncr, TimeUnits, TimeUnits,
+ ECMEnterState a b s m k v, ECMReadState a b s m k v)
+-&gt; ECM a b s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-var">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054647"><span class="hs-identifier hs-var">m'maps</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m1 (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054636"><span class="hs-identifier hs-var">retr</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">m1 TimeUnits
+</span><a href="#local-6989586621679054637"><span class="hs-identifier hs-var">gettime</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054639"><span class="hs-identifier hs-var">minimumkeep</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054638"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054640"><span class="hs-identifier hs-var">removalsize</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-138"></span><span>                     </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054641"><span class="hs-identifier hs-var">compactlistsize</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m1 mv s Map k v
+</span><a href="#local-6989586621679054643"><span class="hs-identifier hs-var">enterstate</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMReadState m1 mv s Map k v
+</span><a href="#local-6989586621679054644"><span class="hs-identifier hs-var">readstate</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-139"></span><span>
+</span><span id="line-140"></span><span class="hs-comment">-- | Request a value associated with a key from the cache.</span><span>
+</span><span id="line-141"></span><span class="hs-comment">--</span><span>
+</span><span id="line-142"></span><span class="hs-comment">--  * If the value is not in the cache, it will be requested through the </span><span>
+</span><span id="line-143"></span><span class="hs-comment">--    function defined through 'newECM', its computation returned and the</span><span>
+</span><span id="line-144"></span><span class="hs-comment">--    value stored in the cache state map.</span><span>
+</span><span id="line-145"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-146"></span><span class="hs-comment">--  * If the value is in the cache and has not expired, it will be returned.</span><span>
+</span><span id="line-147"></span><span class="hs-comment">--</span><span>
+</span><span id="line-148"></span><span class="hs-comment">--  * If the value is in the cache and a new time is computed in the same</span><span>
+</span><span id="line-149"></span><span class="hs-comment">--    lookup, and the value has been determined to have since expired, it </span><span>
+</span><span id="line-150"></span><span class="hs-comment">--    will be discarded and a new value will be requested for this computation.</span><span>
+</span><span id="line-151"></span><span class="hs-comment">--</span><span>
+</span><span id="line-152"></span><span class="hs-comment">-- Every 'lookupECM' computation increments an accumulator in the cache state </span><span>
+</span><span id="line-153"></span><span class="hs-comment">-- which is used to keep track of the succession of key accesses. Based on the</span><span>
+</span><span id="line-154"></span><span class="hs-comment">-- parameters provided with the 'CacheWithLRUList' constructor, this history </span><span>
+</span><span id="line-155"></span><span class="hs-comment">-- of key accesses is then used to remove entries from the cache back down to </span><span>
+</span><span id="line-156"></span><span class="hs-comment">-- a minimum size. Also, when the modulo of the accumulator and the modulo </span><span>
+</span><span id="line-157"></span><span class="hs-comment">-- value computes to 0, the time request function is invoked. In some cases</span><span>
+</span><span id="line-158"></span><span class="hs-comment">-- the accumulator may get incremented more than once in a 'lookupECM'</span><span>
+</span><span id="line-159"></span><span class="hs-comment">-- computation.</span><span>
+</span><span id="line-160"></span><span class="hs-comment">--</span><span>
+</span><span id="line-161"></span><span class="hs-comment">-- As the accumulator is a bound unsigned integer, when the accumulator</span><span>
+</span><span id="line-162"></span><span class="hs-comment">-- increments back to 0, the cache state is completely cleared.</span><span>
+</span><span id="line-163"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-164"></span><span class="hs-comment">-- The time request function is invoked in one of two different conditions</span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-166"></span><span class="hs-comment">--  * When a new key-value entry is requested, the current time is also</span><span>
+</span><span id="line-167"></span><span class="hs-comment">--    requested during the same lookup, as a recent time determination is</span><span>
+</span><span id="line-168"></span><span class="hs-comment">--    needed for a new entry in the key-value cache.</span><span>
+</span><span id="line-169"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-170"></span><span class="hs-comment">--  * When the modulo of the accumulator and a specified value equals to 0.</span><span>
+</span><span id="line-171"></span><span class="hs-comment">--</span><span>
+</span><span id="line-172"></span><span class="hs-comment">-- When the current time is determined during a lookup, access times of the</span><span>
+</span><span id="line-173"></span><span class="hs-comment">-- entries in the key-value cache are compared with the new time to filter</span><span>
+</span><span id="line-174"></span><span class="hs-comment">-- out expired entries from the key-value map.</span><span>
+</span><span id="line-175"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-176"></span><span id="local-6989586621679054498"><span id="local-6989586621679054499"><span id="local-6989586621679054500"><span id="local-6989586621679054501"><span id="local-6989586621679054502"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#lookupECM"><span class="hs-identifier hs-type">lookupECM</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054498"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054499"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054498"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054500"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054501"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054499"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054502"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054499"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054498"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054502"><span class="hs-identifier hs-type">v</span></a></span></span></span></span></span></span><span>
+</span><span id="line-177"></span><span id="lookupECM"><span class="annot"><span class="annottext">lookupECM :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; k -&gt; m v
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#lookupECM"><span class="hs-identifier hs-var hs-var">lookupECM</span></a></span></span><span> </span><span id="local-6989586621679054665"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054665"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span id="local-6989586621679054666"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-178"></span><span>  </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054667"><span class="hs-identifier hs-var">enter</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054668"><span class="hs-identifier hs-var">m'maps</span></a></span><span> </span><span class="annot"><span class="annottext">((CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v)
+-&gt; (CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-179"></span><span>    </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054669"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054669"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054670"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054670"><span class="hs-identifier hs-var">maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054671"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054671"><span class="hs-identifier hs-var">mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054672"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054672"><span class="hs-identifier hs-var">uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054673"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054673"><span class="hs-identifier hs-var">incr</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-180"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679054676"><span class="annot"><span class="annottext">incr' :: ECMIncr
+</span><a href="#local-6989586621679054676"><span class="hs-identifier hs-var hs-var">incr'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054673"><span class="hs-identifier hs-var">incr</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; ECMIncr
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-181"></span><span>       </span><span class="hs-keyword">in</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054676"><span class="hs-identifier hs-var">incr'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054673"><span class="hs-identifier hs-var">incr</span></a></span><span>
+</span><span id="line-182"></span><span>            </span><span class="hs-comment">-- Word incrementor has cycled back to 0,</span><span>
+</span><span id="line-183"></span><span>            </span><span class="hs-comment">-- so may as well clear the cache completely.</span><span>
+</span><span id="line-184"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), Integer)
+-&gt; ECMIncr -&gt; m (CacheState s Map k v, v)
+forall {e}.
+(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), e)
+-&gt; ECMIncr -&gt; m (CacheState s Map k v, v)
+</span><a href="#local-6989586621679054679"><span class="hs-identifier hs-var">lookupECM'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054669"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">M.empty</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Integer
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">0</span></span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; ECMIncr
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-185"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; ECMIncr -&gt; m (CacheState s Map k v, v)
+forall {e}.
+(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), e)
+-&gt; ECMIncr -&gt; m (CacheState s Map k v, v)
+</span><a href="#local-6989586621679054679"><span class="hs-identifier hs-var">lookupECM'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054669"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054670"><span class="hs-identifier hs-var">maps</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054671"><span class="hs-identifier hs-var">mapsize</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054672"><span class="hs-identifier hs-var">uses</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054673"><span class="hs-identifier hs-var">incr</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054676"><span class="hs-identifier hs-var">incr'</span></a></span><span>
+</span><span id="line-186"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-187"></span><span>    </span><span>
+</span><span id="line-188"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054668"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054668"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054680"><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054680"><span class="hs-identifier hs-var">retr</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054681"><span class="annot"><span class="annottext">m TimeUnits
+</span><a href="#local-6989586621679054681"><span class="hs-identifier hs-var">gettime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054682"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054682"><span class="hs-identifier hs-var">minimumkeep</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054683"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054683"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054684"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054684"><span class="hs-identifier hs-var">removalsize</span></a></span></span><span class="hs-special">,</span><span>
+</span><span id="line-189"></span><span>          </span><span id="local-6989586621679054685"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054685"><span class="hs-identifier hs-var">compactlistsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054667"><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054667"><span class="hs-identifier hs-var">enter</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054686"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054686"><span class="hs-identifier hs-var">_ro</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054665"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-190"></span><span>  </span><span>
+</span><span id="line-191"></span><span>    </span><span class="hs-comment">-- Reversing the list first before turning into a map, so the higher value</span><span>
+</span><span id="line-192"></span><span>    </span><span class="hs-comment">-- which is at the beginning will be at the end. And fromList retains the</span><span>
+</span><span id="line-193"></span><span>    </span><span class="hs-comment">-- last value for a key in the list.</span><span>
+</span><span id="line-194"></span><span>    </span><span id="local-6989586621679054689"><span class="annot"><span class="annottext">mnub :: [(k, a)] -&gt; [(k, a)]
+</span><a href="#local-6989586621679054689"><span class="hs-identifier hs-var hs-var">mnub</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Map k a -&gt; [(k, a)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">M.toList</span></span><span> </span><span class="annot"><span class="annottext">(Map k a -&gt; [(k, a)])
+-&gt; ([(k, a)] -&gt; Map k a) -&gt; [(k, a)] -&gt; [(k, a)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">[(k, a)] -&gt; Map k a
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.fromList</span></span><span> </span><span class="annot"><span class="annottext">([(k, a)] -&gt; Map k a)
+-&gt; ([(k, a)] -&gt; [(k, a)]) -&gt; [(k, a)] -&gt; Map k a
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">[(k, a)] -&gt; [(k, a)]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span>
+</span><span id="line-195"></span><span>    </span><span id="local-6989586621679054679"><span class="annot"><span class="annottext">lookupECM' :: (Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), e)
+-&gt; ECMIncr -&gt; m (CacheState s Map k v, v)
+</span><a href="#local-6989586621679054679"><span class="hs-identifier hs-var hs-var">lookupECM'</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054700"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054700"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054701"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054701"><span class="hs-identifier hs-var">maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054702"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054702"><span class="hs-identifier hs-var">mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054703"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054703"><span class="hs-identifier hs-var">uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054704"><span class="annot"><span class="annottext">e
+</span><a href="#local-6989586621679054704"><span class="hs-identifier hs-var">incr</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679054705"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054705"><span class="hs-identifier hs-var">incr'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-196"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679054707"><span class="annot"><span class="annottext">uses' :: ([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054707"><span class="hs-identifier hs-var hs-var">uses'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+-&gt; k
+-&gt; ECMIncr
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)] -&gt; [(k, ECMIncr)])
+-&gt; ([(k, ECMIncr)], TimeUnits)
+forall k.
+Eq k =&gt;
+([(k, ECMIncr)], TimeUnits)
+-&gt; k
+-&gt; ECMIncr
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)] -&gt; [(k, ECMIncr)])
+-&gt; ([(k, ECMIncr)], TimeUnits)
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier hs-var">updateUses</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054703"><span class="hs-identifier hs-var">uses</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054705"><span class="hs-identifier hs-var">incr'</span></a></span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054685"><span class="hs-identifier hs-var">compactlistsize</span></a></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall {a}. [(k, a)] -&gt; [(k, a)]
+</span><a href="#local-6989586621679054689"><span class="hs-identifier hs-var">mnub</span></a></span><span>
+</span><span id="line-197"></span><span>      </span><span class="hs-special">(</span><span id="local-6989586621679054708"><span class="annot"><span class="annottext">(CacheState s Map k v, v)
+</span><a href="#local-6989586621679054708"><span class="hs-identifier hs-var">ret</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054709"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679054709"><span class="hs-identifier hs-var">do_again</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Maybe s
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)], TimeUnits)
+-&gt; ECMIncr
+-&gt; m ((CacheState s Map k v, v), Bool)
+</span><a href="#local-6989586621679054710"><span class="hs-identifier hs-var">det</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054700"><span class="hs-identifier hs-var">retr_state</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054701"><span class="hs-identifier hs-var">maps</span></a></span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054702"><span class="hs-identifier hs-var">mapsize</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054707"><span class="hs-identifier hs-var">uses'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054705"><span class="hs-identifier hs-var">incr'</span></a></span><span>
+</span><span id="line-198"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679054709"><span class="hs-identifier hs-var">do_again</span></a></span><span>
+</span><span id="line-199"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span> </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054711"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054711"><span class="hs-identifier hs-var">retr_state'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054712"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054712"><span class="hs-identifier hs-var">maps'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054713"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054713"><span class="hs-identifier hs-var">mapsize'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054714"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054714"><span class="hs-identifier hs-var">uses''</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054715"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054715"><span class="hs-identifier hs-var">incr''</span></a></span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v)
+</span><a href="#local-6989586621679054708"><span class="hs-identifier hs-var">ret</span></a></span><span>
+</span><span id="line-200"></span><span>                    </span><span id="local-6989586621679054717"><span class="annot"><span class="annottext">uses''' :: ([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054717"><span class="hs-identifier hs-var hs-var">uses'''</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+-&gt; k
+-&gt; ECMIncr
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)] -&gt; [(k, ECMIncr)])
+-&gt; ([(k, ECMIncr)], TimeUnits)
+forall k.
+Eq k =&gt;
+([(k, ECMIncr)], TimeUnits)
+-&gt; k
+-&gt; ECMIncr
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)] -&gt; [(k, ECMIncr)])
+-&gt; ([(k, ECMIncr)], TimeUnits)
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier hs-var">updateUses</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054714"><span class="hs-identifier hs-var">uses''</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054715"><span class="hs-identifier hs-var">incr''</span></a></span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054685"><span class="hs-identifier hs-var">compactlistsize</span></a></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall {a}. [(k, a)] -&gt; [(k, a)]
+</span><a href="#local-6989586621679054689"><span class="hs-identifier hs-var">mnub</span></a></span><span>
+</span><span id="line-201"></span><span>                </span><span class="hs-special">(</span><span id="local-6989586621679054718"><span class="annot"><span class="annottext">(CacheState s Map k v, v)
+</span><a href="#local-6989586621679054718"><span class="hs-identifier hs-var">ret'</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Maybe s
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)], TimeUnits)
+-&gt; ECMIncr
+-&gt; m ((CacheState s Map k v, v), Bool)
+</span><a href="#local-6989586621679054710"><span class="hs-identifier hs-var">det</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054711"><span class="hs-identifier hs-var">retr_state'</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054712"><span class="hs-identifier hs-var">maps'</span></a></span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054713"><span class="hs-identifier hs-var">mapsize'</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054717"><span class="hs-identifier hs-var">uses'''</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054715"><span class="hs-identifier hs-var">incr''</span></a></span><span>
+</span><span id="line-202"></span><span>                </span><span class="annot"><span class="annottext">(CacheState s Map k v, v) -&gt; m (CacheState s Map k v, v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v)
+</span><a href="#local-6989586621679054718"><span class="hs-identifier hs-var">ret'</span></a></span><span>
+</span><span id="line-203"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v) -&gt; m (CacheState s Map k v, v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v)
+</span><a href="#local-6989586621679054708"><span class="hs-identifier hs-var">ret</span></a></span><span>
+</span><span id="line-204"></span><span>    </span><span>
+</span><span id="line-205"></span><span>    </span><span id="local-6989586621679054710"><span class="annot"><span class="annottext">det :: Maybe s
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; TimeUnits
+-&gt; ([(k, ECMIncr)], TimeUnits)
+-&gt; ECMIncr
+-&gt; m ((CacheState s Map k v, v), Bool)
+</span><a href="#local-6989586621679054710"><span class="hs-identifier hs-var hs-var">det</span></a></span></span><span> </span><span id="local-6989586621679054729"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054729"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span> </span><span id="local-6989586621679054730"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054730"><span class="hs-identifier hs-var">maps</span></a></span></span><span> </span><span id="local-6989586621679054731"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054731"><span class="hs-identifier hs-var">mapsize</span></a></span></span><span> </span><span id="local-6989586621679054732"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054732"><span class="hs-identifier hs-var">uses'</span></a></span></span><span> </span><span id="local-6989586621679054733"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054733"><span class="hs-identifier hs-var">incr'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-206"></span><span>      </span><span class="annot"><span class="annottext">Maybe (TimeUnits, TimeUnits, v)
+-&gt; Maybe s
+-&gt; m (TimeUnits, (Maybe s, v))
+-&gt; ((TimeUnits, TimeUnits, v) -&gt; Map k (TimeUnits, TimeUnits, v),
+    (TimeUnits, TimeUnits, v)
+    -&gt; [(k, ECMIncr)] -&gt; Map k (TimeUnits, TimeUnits, v),
+    [(k, ECMIncr)] -&gt; [(k, ECMIncr)], TimeUnits, TimeUnits)
+-&gt; m TimeUnits
+-&gt; (((TimeUnits, TimeUnits, v) -&gt; Bool)
+    -&gt; Map k (TimeUnits, TimeUnits, v)
+    -&gt; Map k (TimeUnits, TimeUnits, v))
+-&gt; TimeUnits
+-&gt; (Map k (TimeUnits, TimeUnits, v) -&gt; TimeUnits)
+-&gt; ([(k, ECMIncr)], TimeUnits)
+-&gt; ECMIncr
+-&gt; ECMIncr
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; m ((CacheState s Map k v, v), Bool)
+forall (m :: * -&gt; *) k v s (mp :: * -&gt; * -&gt; *).
+(Monad m, Eq k) =&gt;
+Maybe (TimeUnits, TimeUnits, v)
+-&gt; Maybe s
+-&gt; m (TimeUnits, (Maybe s, v))
+-&gt; ((TimeUnits, TimeUnits, v) -&gt; mp k (TimeUnits, TimeUnits, v),
+    (TimeUnits, TimeUnits, v)
+    -&gt; [(k, ECMIncr)] -&gt; mp k (TimeUnits, TimeUnits, v),
+    [(k, ECMIncr)] -&gt; [(k, ECMIncr)], TimeUnits, TimeUnits)
+-&gt; m TimeUnits
+-&gt; (((TimeUnits, TimeUnits, v) -&gt; Bool)
+    -&gt; mp k (TimeUnits, TimeUnits, v)
+    -&gt; mp k (TimeUnits, TimeUnits, v))
+-&gt; TimeUnits
+-&gt; (mp k (TimeUnits, TimeUnits, v) -&gt; TimeUnits)
+-&gt; ([(k, ECMIncr)], TimeUnits)
+-&gt; ECMIncr
+-&gt; ECMIncr
+-&gt; mp k (TimeUnits, TimeUnits, v)
+-&gt; m ((CacheState s mp k v, v), Bool)
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-identifier hs-var">detECM</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Maybe (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">M.lookup</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054730"><span class="hs-identifier hs-var">maps</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054729"><span class="hs-identifier hs-var">retr_state</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><a href="#local-6989586621679054680"><span class="hs-identifier hs-var">retr</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054729"><span class="hs-identifier hs-var">retr_state</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-207"></span><span>        </span><span class="hs-special">(</span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679054735"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054735"><span class="hs-identifier hs-var">time_r</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.insert</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054735"><span class="hs-identifier hs-var">time_r</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054730"><span class="hs-identifier hs-var">maps</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-208"></span><span>          </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679054737"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054737"><span class="hs-identifier hs-var">time_r</span></a></span></span><span> </span><span id="local-6989586621679054738"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054738"><span class="hs-identifier hs-var">keepuses</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; a -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.insert</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054666"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054737"><span class="hs-identifier hs-var">time_r</span></a></span><span> </span><span class="annot"><span class="annottext">(Map k (TimeUnits, TimeUnits, v)
+ -&gt; Map k (TimeUnits, TimeUnits, v))
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k ECMIncr -&gt; Map k (TimeUnits, TimeUnits, v)
+forall k a b. Ord k =&gt; Map k a -&gt; Map k b -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.intersection</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054730"><span class="hs-identifier hs-var">maps</span></a></span><span> </span><span class="annot"><span class="annottext">(Map k ECMIncr -&gt; Map k (TimeUnits, TimeUnits, v))
+-&gt; Map k ECMIncr -&gt; Map k (TimeUnits, TimeUnits, v)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; Map k ECMIncr
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.fromList</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054738"><span class="hs-identifier hs-var">keepuses</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-209"></span><span>          </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall {a}. [(k, a)] -&gt; [(k, a)]
+</span><a href="#local-6989586621679054689"><span class="hs-identifier hs-var">mnub</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054682"><span class="hs-identifier hs-var">minimumkeep</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054684"><span class="hs-identifier hs-var">removalsize</span></a></span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-210"></span><span>        </span><span class="annot"><span class="annottext">m TimeUnits
+</span><a href="#local-6989586621679054681"><span class="hs-identifier hs-var">gettime</span></a></span><span>
+</span><span id="line-211"></span><span>        </span><span class="annot"><span class="annottext">((TimeUnits, TimeUnits, v) -&gt; Bool)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+forall a k. (a -&gt; Bool) -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.filter</span></span><span>
+</span><span id="line-212"></span><span>        </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054731"><span class="hs-identifier hs-var">mapsize</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v) -&gt; TimeUnits
+forall k a. Map k a -&gt; TimeUnits
+</span><span class="hs-identifier hs-var">M.size</span></span><span>
+</span><span id="line-213"></span><span>        </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054732"><span class="hs-identifier hs-var">uses'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054733"><span class="hs-identifier hs-var">incr'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054683"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054730"><span class="hs-identifier hs-var">maps</span></a></span><span>
+</span><span id="line-214"></span><span>
+</span><span id="line-215"></span><span>
+</span><span id="line-216"></span><span id="local-6989586621679054537"><span id="local-6989586621679054538"><span id="local-6989586621679054539"><span id="local-6989586621679054540"><span id="local-6989586621679054541"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#getValReqState"><span class="hs-identifier hs-type">getValReqState</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054537"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054538"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054537"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054539"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054540"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054538"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054541"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054538"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054537"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054540"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-217"></span><span id="getValReqState"><span class="annot"><span class="annottext">getValReqState :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; k -&gt; m (Maybe s)
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#getValReqState"><span class="hs-identifier hs-var hs-var">getValReqState</span></a></span></span><span> </span><span id="local-6989586621679054747"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054747"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span id="local-6989586621679054748"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054748"><span class="hs-identifier hs-var">id</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-218"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054749"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054749"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054750"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054750"><span class="hs-identifier hs-var">maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054751"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054751"><span class="hs-identifier hs-var">mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054752"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054752"><span class="hs-identifier hs-var">uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054753"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054753"><span class="hs-identifier hs-var">incr</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054754"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054755"><span class="hs-identifier hs-var">m'maps</span></a></span><span>
+</span><span id="line-219"></span><span>  </span><span class="annot"><span class="annottext">Maybe s -&gt; m (Maybe s)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054749"><span class="hs-identifier hs-var">retr_state</span></a></span><span>
+</span><span id="line-220"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-221"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054755"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054755"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">m TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054754"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054754"><span class="hs-identifier hs-var">read</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054747"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-222"></span><span>
+</span><span id="line-223"></span><span>
+</span><span id="line-224"></span><span class="hs-comment">-- | Invalidates a key from the cache and returns its value if any.</span><span>
+</span><span id="line-225"></span><span class="hs-comment">--   Note that this is a sequential composition of a read and modify of the</span><span>
+</span><span id="line-226"></span><span class="hs-comment">--   mutable cache container (e.g. 'MV.readMVar' followed by 'MV.modifyMVar'</span><span>
+</span><span id="line-227"></span><span class="hs-comment">--   with 'newECMIO' instances).</span><span>
+</span><span id="line-228"></span><span class="hs-comment">--</span><span>
+</span><span id="line-229"></span><span id="local-6989586621679054547"><span id="local-6989586621679054548"><span id="local-6989586621679054549"><span id="local-6989586621679054550"><span id="local-6989586621679054551"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidate"><span class="hs-identifier hs-type">invalidate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054547"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054548"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054547"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054549"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054550"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054548"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054551"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054548"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054547"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054551"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-230"></span><span id="invalidate"><span class="annot"><span class="annottext">invalidate :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; k -&gt; m (Maybe v)
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidate"><span class="hs-identifier hs-var hs-var">invalidate</span></a></span></span><span> </span><span id="local-6989586621679054765"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054765"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span id="local-6989586621679054766"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054766"><span class="hs-identifier hs-var">id</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-231"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054767"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054767"><span class="hs-identifier hs-var">maps0</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054768"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054769"><span class="hs-identifier hs-var">m'maps</span></a></span><span>
+</span><span id="line-232"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Maybe (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">M.lookup</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054766"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054767"><span class="hs-identifier hs-var">maps0</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-233"></span><span>    </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679054770"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054770"><span class="hs-identifier hs-var">time_prev0</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-234"></span><span>      </span><span id="local-6989586621679054771"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054771"><span class="hs-identifier hs-var">prev0'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054772"><span class="hs-identifier hs-var">enter</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054769"><span class="hs-identifier hs-var">m'maps</span></a></span><span> </span><span class="annot"><span class="annottext">((CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v)
+-&gt; (CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-235"></span><span>        </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054773"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054773"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054774"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054774"><span class="hs-identifier hs-var">maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054775"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054775"><span class="hs-identifier hs-var">mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054776"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054776"><span class="hs-identifier hs-var">uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054777"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054777"><span class="hs-identifier hs-var">incr</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-236"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054780"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054780"><span class="hs-identifier hs-var">prev</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-237"></span><span>                </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Maybe (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">M.lookup</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054766"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054774"><span class="hs-identifier hs-var">maps</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-238"></span><span>                  </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679054781"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054781"><span class="hs-identifier hs-var">time_prev</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054781"><span class="hs-identifier hs-var">time_prev</span></a></span><span>
+</span><span id="line-239"></span><span>                  </span><span class="annot"><span class="annottext">Maybe (TimeUnits, TimeUnits, v)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054770"><span class="hs-identifier hs-var">time_prev0</span></a></span><span>
+</span><span id="line-240"></span><span>              </span><span id="local-6989586621679054784"><span class="annot"><span class="annottext">maps' :: Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054784"><span class="hs-identifier hs-var hs-var">maps'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Map k (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.delete</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054766"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054774"><span class="hs-identifier hs-var">maps</span></a></span><span>
+</span><span id="line-241"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v) -&gt; m (CacheState s Map k v, v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s Map k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054773"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054784"><span class="hs-identifier hs-var">maps'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054775"><span class="hs-identifier hs-var">mapsize</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054776"><span class="hs-identifier hs-var">uses</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054777"><span class="hs-identifier hs-var">incr</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054780"><span class="hs-identifier hs-var">prev</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-242"></span><span>      </span><span class="annot"><span class="annottext">Maybe v -&gt; m (Maybe v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(Maybe v -&gt; m (Maybe v)) -&gt; Maybe v -&gt; m (Maybe v)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">v -&gt; Maybe v
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054771"><span class="hs-identifier hs-var">prev0'</span></a></span><span>
+</span><span id="line-243"></span><span>    </span><span class="annot"><span class="annottext">Maybe (TimeUnits, TimeUnits, v)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe v -&gt; m (Maybe v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe v
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-244"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-245"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054769"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054769"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">m TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054786"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054786"><span class="hs-identifier hs-var">compactlistsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054772"><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054772"><span class="hs-identifier hs-var">enter</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054768"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054768"><span class="hs-identifier hs-var">read</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054765"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-246"></span><span>
+</span><span id="line-247"></span><span>
+</span><span id="line-248"></span><span class="hs-comment">-- | Invalidates the entire cache and returns the last key and value if any.</span><span>
+</span><span id="line-249"></span><span class="hs-comment">--   Note that this is a sequential composition of a read and modify of the</span><span>
+</span><span id="line-250"></span><span class="hs-comment">--   mutable cache container (e.g. 'MV.readMVar' followed by 'MV.modifyMVar'</span><span>
+</span><span id="line-251"></span><span class="hs-comment">--   with 'newECMIO' instances).</span><span>
+</span><span id="line-252"></span><span class="hs-comment">--</span><span>
+</span><span id="line-253"></span><span id="local-6989586621679054559"><span id="local-6989586621679054560"><span id="local-6989586621679054561"><span id="local-6989586621679054562"><span id="local-6989586621679054563"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidateCache"><span class="hs-identifier hs-type">invalidateCache</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054559"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054560"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054559"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054561"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054562"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054560"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054563"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054559"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054560"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054563"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-254"></span><span id="invalidateCache"><span class="annot"><span class="annottext">invalidateCache :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; m (Maybe (k, v))
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#invalidateCache"><span class="hs-identifier hs-var hs-var">invalidateCache</span></a></span></span><span> </span><span id="local-6989586621679054799"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054799"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-255"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054800"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054800"><span class="hs-identifier hs-var">maps0</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054801"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054801"><span class="hs-identifier hs-var">uses0</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054802"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054803"><span class="hs-identifier hs-var">m'maps</span></a></span><span>
+</span><span id="line-256"></span><span>  </span><span class="hs-keyword">case</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Map k ECMIncr -&gt; [(k, ECMIncr)]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">M.toList</span></span><span> </span><span class="annot"><span class="annottext">(Map k ECMIncr -&gt; [(k, ECMIncr)])
+-&gt; Map k ECMIncr -&gt; [(k, ECMIncr)]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Map k ECMIncr -&gt; Map k (TimeUnits, TimeUnits, v) -&gt; Map k ECMIncr
+forall k a b. Ord k =&gt; Map k a -&gt; Map k b -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.intersection</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; Map k ECMIncr
+forall k a. Ord k =&gt; [(k, a)] -&gt; Map k a
+</span><span class="hs-identifier hs-var">M.fromList</span></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)] -&gt; Map k ECMIncr)
+-&gt; [(k, ECMIncr)] -&gt; Map k ECMIncr
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054801"><span class="hs-identifier hs-var">uses0</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054800"><span class="hs-identifier hs-var">maps0</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-257"></span><span>    </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe (k, v) -&gt; m (Maybe (k, v))
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">Maybe (k, v)
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-258"></span><span>    </span><span id="local-6989586621679054804"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054804"><span class="hs-identifier hs-var">uses0'</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span>
+</span><span id="line-259"></span><span>      </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054808"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054808"><span class="hs-identifier hs-var">id</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((k, ECMIncr) -&gt; (k, ECMIncr) -&gt; Ordering)
+-&gt; [(k, ECMIncr)] -&gt; (k, ECMIncr)
+forall (t :: * -&gt; *) a.
+Foldable t =&gt;
+(a -&gt; a -&gt; Ordering) -&gt; t a -&gt; a
+</span><span class="hs-identifier hs-var">L.maximumBy</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span id="local-6989586621679054810"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054810"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span id="local-6989586621679054811"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054811"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; Ordering
+forall a. Ord a =&gt; a -&gt; a -&gt; Ordering
+</span><span class="hs-identifier hs-var">compare</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054810"><span class="hs-identifier hs-var">a</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054811"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054804"><span class="hs-identifier hs-var">uses0'</span></a></span><span> </span><span class="hs-keyword">in</span><span>
+</span><span id="line-260"></span><span>      </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Maybe (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">M.lookup</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054808"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054800"><span class="hs-identifier hs-var">maps0</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-261"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679054813"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054813"><span class="hs-identifier hs-var">time_prev0</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-262"></span><span>          </span><span id="local-6989586621679054814"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054814"><span class="hs-identifier hs-var">prev0'</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054815"><span class="hs-identifier hs-var">enter</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054803"><span class="hs-identifier hs-var">m'maps</span></a></span><span> </span><span class="annot"><span class="annottext">((CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v)
+-&gt; (CacheState s Map k v -&gt; m (CacheState s Map k v, v)) -&gt; m v
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span>
+</span><span id="line-263"></span><span>            </span><span class="hs-glyph">\</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054816"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054816"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054817"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054817"><span class="hs-identifier hs-var">maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054818"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054818"><span class="hs-identifier hs-var">_mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054819"><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><a href="#local-6989586621679054819"><span class="hs-identifier hs-var">_uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054820"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054820"><span class="hs-identifier hs-var">_incr</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-264"></span><span>              </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054823"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054823"><span class="hs-identifier hs-var">prev</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-265"></span><span>                    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">k
+-&gt; Map k (TimeUnits, TimeUnits, v)
+-&gt; Maybe (TimeUnits, TimeUnits, v)
+forall k a. Ord k =&gt; k -&gt; Map k a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">M.lookup</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054808"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054817"><span class="hs-identifier hs-var">maps</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-266"></span><span>                      </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span id="local-6989586621679054824"><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054824"><span class="hs-identifier hs-var">time_prev</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054824"><span class="hs-identifier hs-var">time_prev</span></a></span><span>
+</span><span id="line-267"></span><span>                      </span><span class="annot"><span class="annottext">Maybe (TimeUnits, TimeUnits, v)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">(TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054813"><span class="hs-identifier hs-var">time_prev0</span></a></span><span>
+</span><span id="line-268"></span><span>               </span><span class="hs-keyword">in</span><span> </span><span class="annot"><span class="annottext">(CacheState s Map k v, v) -&gt; m (CacheState s Map k v, v)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Maybe s, Map k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s Map k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (TimeUnits, TimeUnits, v), TimeUnits,
+ ([(k, ECMIncr)], TimeUnits), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054816"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+forall k a. Map k a
+</span><span class="hs-identifier hs-var">M.empty</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054823"><span class="hs-identifier hs-var">prev</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-269"></span><span>          </span><span class="annot"><span class="annottext">Maybe (k, v) -&gt; m (Maybe (k, v))
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(Maybe (k, v) -&gt; m (Maybe (k, v)))
+-&gt; Maybe (k, v) -&gt; m (Maybe (k, v))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">(k, v) -&gt; Maybe (k, v)
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054808"><span class="hs-identifier hs-var">id</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054814"><span class="hs-identifier hs-var">prev0'</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-270"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-271"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054803"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054803"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">m TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054825"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054825"><span class="hs-identifier hs-var">compactlistsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054815"><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><a href="#local-6989586621679054815"><span class="hs-identifier hs-var">enter</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054802"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054802"><span class="hs-identifier hs-var">read</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054799"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-272"></span><span>
+</span><span id="line-273"></span><span>
+</span><span id="line-274"></span><span class="hs-comment">-- | List of keys in the cache map without performing a time check, returning</span><span>
+</span><span id="line-275"></span><span class="hs-comment">--   both stored keys that are expired and keys that are not expired. keys are</span><span>
+</span><span id="line-276"></span><span class="hs-comment">--   in an unspecified order.</span><span>
+</span><span id="line-277"></span><span class="hs-comment">--</span><span>
+</span><span id="line-278"></span><span id="local-6989586621679054571"><span id="local-6989586621679054572"><span id="local-6989586621679054573"><span id="local-6989586621679054574"><span id="local-6989586621679054575"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#keysCached"><span class="hs-identifier hs-type">keysCached</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054571"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054572"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054571"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054573"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054574"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054572"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054575"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054571"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679054572"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">]</span></span></span></span></span></span><span>
+</span><span id="line-279"></span><span id="keysCached"><span class="annot"><span class="annottext">keysCached :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; m [k]
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#keysCached"><span class="hs-identifier hs-var hs-var">keysCached</span></a></span></span><span> </span><span id="local-6989586621679054830"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054830"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-280"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054831"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054831"><span class="hs-identifier hs-var">maps0</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054832"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054833"><span class="hs-identifier hs-var">m'maps</span></a></span><span>
+</span><span id="line-281"></span><span>  </span><span class="annot"><span class="annottext">[k] -&gt; m [k]
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">([k] -&gt; m [k]) -&gt; [k] -&gt; m [k]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v) -&gt; [k]
+forall k a. Map k a -&gt; [k]
+</span><span class="hs-identifier hs-var">M.keys</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054831"><span class="hs-identifier hs-var">maps0</span></a></span><span>
+</span><span id="line-282"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-283"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054833"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054833"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">m TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054832"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054832"><span class="hs-identifier hs-var">read</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054830"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-284"></span><span>
+</span><span id="line-285"></span><span>
+</span><span id="line-286"></span><span class="hs-comment">-- | List of keys in the cache map that are not expired values. A time check</span><span>
+</span><span id="line-287"></span><span class="hs-comment">--   is always performed to compare with the elapsed time left with each key.</span><span>
+</span><span id="line-288"></span><span class="hs-comment">--   The cache state is not modified and the time check is not performed from</span><span>
+</span><span id="line-289"></span><span class="hs-comment">--   within a modifying state context, e.g. not within 'MV.modifyMVar' with a </span><span>
+</span><span id="line-290"></span><span class="hs-comment">--   'newECMIO' instance. Keys are in an unspecified order. </span><span>
+</span><span id="line-291"></span><span class="hs-comment">--</span><span>
+</span><span id="line-292"></span><span id="local-6989586621679054835"><span id="local-6989586621679054836"><span id="local-6989586621679054837"><span id="local-6989586621679054838"><span id="local-6989586621679054839"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#keysNotExpired"><span class="hs-identifier hs-type">keysNotExpired</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054835"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054836"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054835"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054837"><span class="hs-identifier hs-type">mv</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054838"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><span class="hs-identifier hs-type">M.Map</span></span><span> </span><span class="annot"><a href="#local-6989586621679054836"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054839"><span class="hs-identifier hs-type">v</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054835"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679054836"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">]</span></span></span></span></span></span><span>
+</span><span id="line-293"></span><span id="keysNotExpired"><span class="annot"><span class="annottext">keysNotExpired :: forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Ord k) =&gt;
+ECM m mv s Map k v -&gt; m [k]
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#keysNotExpired"><span class="hs-identifier hs-var hs-var">keysNotExpired</span></a></span></span><span> </span><span id="local-6989586621679054845"><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054845"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-294"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054846"><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054846"><span class="hs-identifier hs-var">maps0</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], TimeUnits)
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054847"><span class="hs-identifier hs-var">read</span></a></span><span> </span><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054848"><span class="hs-identifier hs-var">m'maps</span></a></span><span>
+</span><span id="line-295"></span><span>  </span><span id="local-6989586621679054849"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054849"><span class="hs-identifier hs-var">current_time</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m TimeUnits
+</span><a href="#local-6989586621679054850"><span class="hs-identifier hs-var">gettime</span></a></span><span>
+</span><span id="line-296"></span><span>  </span><span class="annot"><span class="annottext">[k] -&gt; m [k]
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">([k] -&gt; m [k]) -&gt; [k] -&gt; m [k]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TimeUnits -&gt; [(k, (TimeUnits, TimeUnits, v))] -&gt; [k]
+forall k v. TimeUnits -&gt; [(k, (TimeUnits, TimeUnits, v))] -&gt; [k]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-identifier hs-var">detNotExpired</span></a></span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054849"><span class="hs-identifier hs-var">current_time</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, (TimeUnits, TimeUnits, v))] -&gt; [k])
+-&gt; [(k, (TimeUnits, TimeUnits, v))] -&gt; [k]
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v) -&gt; [(k, (TimeUnits, TimeUnits, v))]
+forall k a. Map k a -&gt; [(k, a)]
+</span><span class="hs-identifier hs-var">M.toList</span></span><span> </span><span class="annot"><span class="annottext">Map k (TimeUnits, TimeUnits, v)
+</span><a href="#local-6989586621679054846"><span class="hs-identifier hs-var">maps0</span></a></span><span>
+</span><span id="line-297"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-298"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054848"><span class="annot"><span class="annottext">mv (CacheState s Map k v)
+</span><a href="#local-6989586621679054848"><span class="hs-identifier hs-var">m'maps</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (TimeUnits, (Maybe s, v))
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054850"><span class="annot"><span class="annottext">m TimeUnits
+</span><a href="#local-6989586621679054850"><span class="hs-identifier hs-var">gettime</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">TimeUnits
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMEnterState m mv s Map k v
+</span><span class="hs-identifier">_</span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054847"><span class="annot"><span class="annottext">ECMReadState m mv s Map k v
+</span><a href="#local-6989586621679054847"><span class="hs-identifier hs-var">read</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m mv s Map k v
+</span><a href="#local-6989586621679054845"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-299"></span><span>
+</span><span id="line-300"></span><span>
+</span><span id="line-301"></span><span>
+</span><span id="line-302"></span><span class="hs-comment">{-
+
+These functions would require inclusion of a enter_ function (like modifyMVar_)
+
+putValReqState :: (Monad m, Ord k) =&gt; ECM m mv s M.Map k v -&gt; k -&gt; Maybe s -&gt; m (Maybe s)
+putValReqState ecm id new_state = do
+  enter_ m'maps $
+    \(CacheState (retr_state, maps, mapsize, uses, incr)) -&gt;
+      return (CacheState (new_state, maps, mapsize, uses, incr), retr_state)
+  where
+    
+    ECM ( m'maps, _, _, _, _, _, _, _, enter_, _ro ) = ecm
+
+
+clearCache :: (Monad m, Ord k) =&gt; ECM m mv s M.Map k v -&gt; m ()
+clearCache ecm = do
+  enter_ m'maps $
+    \(CacheState (retr_state, maps, mapsize, uses, incr)) -&gt;
+      return $ CacheState (retr_state, M.empty, 0, ([], 0), 0)
+  where
+    ECM ( m'maps, _, _, _, _, _, _, enter, enter_, _ ) = ecm
+
+-}</span><span>
+</span><span id="line-325"></span><span>
+</span><span id="line-326"></span><span>
+</span><span id="line-327"></span><span class="hs-comment">{-
+-- This function differs from 'lookupECM' only in the case that the value
+-- being requested also causes a new time to have been computed during the 
+-- same lookup, and have been found to be out of date. When the condition 
+-- happens, this function returns the old cached value without attempting
+-- to request a new value, despite being out of date. However, it does
+-- clear the key from the key-value store for the next request.
+--
+lookupECMUse :: (Monad m, Ord k) =&gt; ECM m mv s M.Map k v -&gt; k -&gt; m v
+lookupECMUse ecm id = do
+  enter m'maps $
+    \(CacheState (retr_state, maps, mapsize, uses, incr)) -&gt;
+      let incr' = incr + 1
+       in if incr' &lt; incr
+            -- Word incrementor has cycled back to 0,
+            -- so may as well clear the cache completely.
+            then lookupECM' (retr_state, M.empty, 0, ([], 0), 0) (0+1)
+            else lookupECM' (retr_state, maps, mapsize, uses, incr) incr'
+  where
+    
+    ECM ( m'maps, retr, gettime, minimumkeep, timecheckmodulo, removalsize,
+          compactlistsize, enter, _ro ) = ecm
+  
+    mnub = M.toList . M.fromList . reverse
+    lookupECM' (retr_state, maps, mapsize, uses, incr) incr' = do
+      let uses' = updateUses uses id incr' compactlistsize mnub
+      (ret, _) &lt;-
+          detECM (M.lookup id maps) retr_state (retr retr_state id)
+            ( (\time_r -&gt; M.insert id time_r maps),
+              (\time_r keepuses -&gt; M.insert id time_r $! M.intersection maps $ M.fromList keepuses),
+              mnub, minimumkeep, removalsize )
+            gettime
+            M.filter mapsize M.size
+            uses' incr' timecheckmodulo maps
+      return ret
+-}</span><span>
+</span><span id="line-363"></span><span>
+</span><span id="line-364"></span><span>
+</span><span id="line-365"></span><span class="annot"><span class="hs-comment">-- | Used with 'newECMIO' or 'newECMForM' to provide a consistent duration for requested values.</span></span><span>
+</span><span id="line-366"></span><span id="local-6989586621679054590"><span id="local-6989586621679054591"><span id="local-6989586621679054592"><span id="local-6989586621679054593"><span class="annot"><a href="Caching.ExpiringCacheMap.OrdECM.html#consistentDuration"><span class="hs-identifier hs-type">consistentDuration</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054590"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Ord</span></span><span> </span><span class="annot"><a href="#local-6989586621679054591"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054592"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054591"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054590"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054592"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054593"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054592"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054591"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054590"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054592"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054593"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span></span></span></span></span><span>
+</span><span id="line-367"></span><span id="consistentDuration"><span class="annot"><span class="annottext">consistentDuration :: forall (m :: * -&gt; *) k s v.
+(Monad m, Ord k) =&gt;
+TimeUnits
+-&gt; (Maybe s -&gt; k -&gt; m (Maybe s, v))
+-&gt; Maybe s
+-&gt; k
+-&gt; m (TimeUnits, (Maybe s, v))
+</span><a href="Caching.ExpiringCacheMap.OrdECM.html#consistentDuration"><span class="hs-identifier hs-var hs-var">consistentDuration</span></a></span></span><span> </span><span id="local-6989586621679054855"><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054855"><span class="hs-identifier hs-var">duration</span></a></span></span><span> </span><span id="local-6989586621679054856"><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (Maybe s, v)
+</span><a href="#local-6989586621679054856"><span class="hs-identifier hs-var">fun</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-368"></span><span>  </span><span class="hs-glyph">\</span><span id="local-6989586621679054857"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054857"><span class="hs-identifier hs-var">state</span></a></span></span><span> </span><span id="local-6989586621679054858"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054858"><span class="hs-identifier hs-var">id</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-369"></span><span>    </span><span id="local-6989586621679054859"><span class="annot"><span class="annottext">(Maybe s, v)
+</span><a href="#local-6989586621679054859"><span class="hs-identifier hs-var">ret</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (Maybe s, v)
+</span><a href="#local-6989586621679054856"><span class="hs-identifier hs-var">fun</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054857"><span class="hs-identifier hs-var">state</span></a></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054858"><span class="hs-identifier hs-var">id</span></a></span><span>
+</span><span id="line-370"></span><span>    </span><span class="annot"><span class="annottext">(TimeUnits, (Maybe s, v)) -&gt; m (TimeUnits, (Maybe s, v))
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">TimeUnits
+</span><a href="#local-6989586621679054855"><span class="hs-identifier hs-var">duration</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">(Maybe s, v)
+</span><a href="#local-6989586621679054859"><span class="hs-identifier hs-var">ret</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-371"></span><span>
+</span><span id="line-372"></span></pre></body></html>

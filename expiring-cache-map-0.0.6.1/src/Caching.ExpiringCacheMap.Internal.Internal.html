@@ -1,0 +1,963 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- |</span><span>
+</span><span id="line-3"></span><span class="hs-comment">-- Module : Caching.ExpiringCacheMap.Internal</span><span>
+</span><span id="line-4"></span><span class="hs-comment">-- Copyright: (c) 2014 Edward L. Blake</span><span>
+</span><span id="line-5"></span><span class="hs-comment">-- License: BSD-style</span><span>
+</span><span id="line-6"></span><span class="hs-comment">-- Maintainer: Edward L. Blake &lt;edwardlblake@gmail.com&gt;</span><span>
+</span><span id="line-7"></span><span class="hs-comment">-- Stability: experimental</span><span>
+</span><span id="line-8"></span><span class="hs-comment">-- Portability: portable</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--</span><span>
+</span><span id="line-10"></span><span class="hs-comment">-- A module with internal functions used in common by HashECM and OrdECM.</span><span>
+</span><span id="line-11"></span><span class="hs-comment">-- Assume these functions to change from version to version.</span><span>
+</span><span id="line-12"></span><span class="hs-comment">-- </span><span>
+</span><span id="line-13"></span><span>
+</span><span id="line-14"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Caching.ExpiringCacheMap.Internal.Internal</span><span> </span><span class="hs-special">(</span><span>
+</span><span id="line-15"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier">updateUses</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-16"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-identifier">detECM</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-17"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#getStatsString"><span class="hs-identifier">getStatsString</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-18"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-identifier">detNotExpired</span></a></span><span>
+</span><span id="line-19"></span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-20"></span><span>
+</span><span id="line-21"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.List</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">L</span></span><span>
+</span><span id="line-22"></span><span>
+</span><span id="line-23"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Types.html"><span class="hs-identifier">Caching.ExpiringCacheMap.Types</span></a></span><span>
+</span><span id="line-24"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html"><span class="hs-identifier">Caching.ExpiringCacheMap.Internal.Types</span></a></span><span>
+</span><span id="line-25"></span><span>
+</span><span id="line-26"></span><span id="local-6989586621679054105"><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier hs-type">updateUses</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Eq</span></span><span> </span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMULength"><span class="hs-identifier hs-type">ECMULength</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span>
+</span><span id="line-27"></span><span>  </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMULength"><span class="hs-identifier hs-type">ECMULength</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">)</span><span>
+</span><span id="line-28"></span><span>    </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054105"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMULength"><span class="hs-identifier hs-type">ECMULength</span></a></span><span class="hs-special">)</span></span><span>
+</span><span id="line-29"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-pragma hs-type">updateUses</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-30"></span><span id="updateUses"><span class="annot"><span class="annottext">updateUses :: forall k.
+Eq k =&gt;
+([(k, ECMIncr)], ECMULength)
+-&gt; k
+-&gt; ECMIncr
+-&gt; ECMULength
+-&gt; ([(k, ECMIncr)] -&gt; [(k, ECMIncr)])
+-&gt; ([(k, ECMIncr)], ECMULength)
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#updateUses"><span class="hs-identifier hs-var hs-var">updateUses</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054205"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054205"><span class="hs-identifier hs-var">usesl</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054206"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679054207"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span></span><span> </span><span id="local-6989586621679054208"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span></span><span> </span><span id="local-6989586621679054209"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054209"><span class="hs-identifier hs-var">compactlistsize</span></a></span></span><span> </span><span id="local-6989586621679054210"><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+</span><a href="#local-6989586621679054210"><span class="hs-identifier hs-var">compactUses</span></a></span></span><span>
+</span><span id="line-31"></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><span class="hs-number">5</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-32"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054205"><span class="hs-identifier hs-var">usesl</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-33"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679054211"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054211"><span class="hs-identifier hs-var">id'</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054212"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054212"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054211"><span class="hs-identifier hs-var">id'</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-34"></span><span>          </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054211"><span class="hs-identifier hs-var">id'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054212"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-35"></span><span>
+</span><span id="line-36"></span><span>        </span><span id="local-6989586621679054213"><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054213"><span class="hs-identifier hs-var">latest</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054214"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054215"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054215"><span class="hs-identifier hs-var">oincr1</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054216"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054217"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054217"><span class="hs-identifier hs-var">oincr2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054218"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054219"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054219"><span class="hs-identifier hs-var">oincr3</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054220"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054221"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054221"><span class="hs-identifier hs-var">oincr4</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054222"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054222"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-37"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-38"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054213"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054217"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054219"><span class="hs-identifier hs-var">oincr3</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054221"><span class="hs-identifier hs-var">oincr4</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054222"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-39"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054213"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054215"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054219"><span class="hs-identifier hs-var">oincr3</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054221"><span class="hs-identifier hs-var">oincr4</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054222"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-40"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054213"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054215"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054217"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054221"><span class="hs-identifier hs-var">oincr4</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054222"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-41"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054220"><span class="hs-identifier hs-var">id4</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054213"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054214"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054215"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054216"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054217"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054218"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054219"><span class="hs-identifier hs-var">oincr3</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054222"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-42"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-43"></span><span>          </span><span class="hs-comment">{-
+          if id1 == id
+            then ((id1, incr') : latest : (id2, oincr2) : (id3, oincr3) : (id4, oincr4) : rest, lcount)
+            else if id2 == id 
+                   then ((id2, incr') : latest : (id1, oincr1) : (id3, oincr3) : (id4, oincr4) : rest, lcount)
+                   else if id3 == id 
+                          then ((id3, incr') : latest : (id1, oincr1) : (id2, oincr2) : (id4, oincr4) : rest, lcount)
+                          else if id4 == id 
+                                 then ((id4, incr') : latest : (id1, oincr1) : (id2, oincr2) : (id3, oincr3) : rest, lcount)
+                                 else justPrepend
+          -}</span><span>
+</span><span id="line-54"></span><span>
+</span><span id="line-55"></span><span>        </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-56"></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-57"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054205"><span class="hs-identifier hs-var">usesl</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-58"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679054224"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054224"><span class="hs-identifier hs-var">id'</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054225"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054225"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054224"><span class="hs-identifier hs-var">id'</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-59"></span><span>          </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054224"><span class="hs-identifier hs-var">id'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054225"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-60"></span><span>
+</span><span id="line-61"></span><span>        </span><span id="local-6989586621679054226"><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054226"><span class="hs-identifier hs-var">latest</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054227"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054227"><span class="hs-identifier hs-var">id1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054228"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054228"><span class="hs-identifier hs-var">oincr1</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054229"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054229"><span class="hs-identifier hs-var">id2</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054230"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054230"><span class="hs-identifier hs-var">oincr2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054231"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054231"><span class="hs-identifier hs-var">id3</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054232"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054232"><span class="hs-identifier hs-var">oincr3</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054233"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054233"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-62"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-63"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054227"><span class="hs-identifier hs-var">id1</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054227"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054226"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054229"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054230"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054231"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054232"><span class="hs-identifier hs-var">oincr3</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054233"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-64"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054229"><span class="hs-identifier hs-var">id2</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054229"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054226"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054227"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054228"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054231"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054232"><span class="hs-identifier hs-var">oincr3</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054233"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-65"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054231"><span class="hs-identifier hs-var">id3</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054231"><span class="hs-identifier hs-var">id3</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054226"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054227"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054228"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054229"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054230"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054233"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-66"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-67"></span><span>          </span><span class="hs-comment">{-
+          if id1 == id
+            then ((id1, incr') : latest : (id2, oincr2) : (id3, oincr3) : rest, lcount)
+            else if id2 == id 
+                   then ((id2, incr') : latest : (id1, oincr1) : (id3, oincr3) : rest, lcount)
+                   else if id3 == id 
+                          then ((id3, incr') : latest : (id1, oincr1) : (id2, oincr2) : rest, lcount)
+                          else justPrepend
+          -}</span><span>
+</span><span id="line-76"></span><span>        </span><span>
+</span><span id="line-77"></span><span>        </span><span id="local-6989586621679054234"><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054234"><span class="hs-identifier hs-var">latest</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054235"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054235"><span class="hs-identifier hs-var">id1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054236"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054236"><span class="hs-identifier hs-var">oincr1</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054237"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054237"><span class="hs-identifier hs-var">id2</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054238"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054238"><span class="hs-identifier hs-var">oincr2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054239"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054239"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-78"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-79"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054235"><span class="hs-identifier hs-var">id1</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054235"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054234"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054237"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054238"><span class="hs-identifier hs-var">oincr2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054239"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-80"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054237"><span class="hs-identifier hs-var">id2</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054237"><span class="hs-identifier hs-var">id2</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054234"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054235"><span class="hs-identifier hs-var">id1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054236"><span class="hs-identifier hs-var">oincr1</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054239"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-81"></span><span>            </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-82"></span><span>          </span><span class="hs-comment">{-
+          if id1 == id
+            then ((id1, incr') : latest : (id2, oincr2) : rest, lcount)
+            else if id2 == id 
+                   then ((id2, incr') : latest : (id1, oincr1) : rest, lcount)
+                   else justPrepend
+          -}</span><span>
+</span><span id="line-89"></span><span>        </span><span>
+</span><span id="line-90"></span><span>        </span><span id="local-6989586621679054240"><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054240"><span class="hs-identifier hs-var">latest</span></a></span></span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054241"><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054241"><span class="hs-identifier hs-var">id'</span></a></span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054242"><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054242"><span class="hs-identifier hs-var">rest</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-91"></span><span>          </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054241"><span class="hs-identifier hs-var">id'</span></a></span><span> </span><span class="annot"><span class="annottext">k -&gt; k -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span> </span><span>
+</span><span id="line-92"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054241"><span class="hs-identifier hs-var">id'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr)
+</span><a href="#local-6989586621679054240"><span class="hs-identifier hs-var">latest</span></a></span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054242"><span class="hs-identifier hs-var">rest</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-93"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-94"></span><span>         </span><span>
+</span><span id="line-95"></span><span>        </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><span class="hs-identifier">_</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var">justPrepend</span></a></span><span>
+</span><span id="line-96"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-97"></span><span>    </span><span id="local-6989586621679054223"><span class="annot"><span class="annottext">justPrepend :: ([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054223"><span class="hs-identifier hs-var hs-var">justPrepend</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-98"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054209"><span class="hs-identifier hs-var">compactlistsize</span></a></span><span>
+</span><span id="line-99"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679054251"><span class="annot"><span class="annottext">newusesl :: [(k, ECMIncr)]
+</span><a href="#local-6989586621679054251"><span class="hs-identifier hs-var hs-var">newusesl</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+</span><a href="#local-6989586621679054210"><span class="hs-identifier hs-var">compactUses</span></a></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054205"><span class="hs-identifier hs-var">usesl</span></a></span><span>
+</span><span id="line-100"></span><span>              </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054251"><span class="hs-identifier hs-var">newusesl</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; ECMULength
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">ECMULength
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(ECMULength -&gt; ECMULength) -&gt; ECMULength -&gt; ECMULength
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(k, ECMIncr)] -&gt; ECMULength
+forall a. [a] -&gt; ECMULength
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; ECMULength
+</span><span class="hs-identifier hs-var">L.length</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054251"><span class="hs-identifier hs-var">newusesl</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-special">)</span><span>
+</span><span id="line-101"></span><span>        </span><span class="hs-keyword">else</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">k
+</span><a href="#local-6989586621679054207"><span class="hs-identifier hs-var">id</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054208"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(k, ECMIncr) -&gt; [(k, ECMIncr)] -&gt; [(k, ECMIncr)]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span> </span><span class="annot"><span class="annottext">[(k, ECMIncr)]
+</span><a href="#local-6989586621679054205"><span class="hs-identifier hs-var">usesl</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054206"><span class="hs-identifier hs-var">lcount</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; ECMULength
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><span class="hs-number">1</span></span><span class="hs-special">)</span><span>
+</span><span id="line-102"></span><span>
+</span><span id="line-103"></span><span id="local-6989586621679054118"><span id="local-6989586621679054119"><span id="local-6989586621679054120"><span id="local-6989586621679054121"><span id="local-6989586621679054122"><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-identifier hs-type">detECM</span></a></span><span>
+</span><span id="line-104"></span><span>  </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Monad</span></span><span> </span><span class="annot"><a href="#local-6989586621679054118"><span class="hs-identifier hs-type">m</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Eq</span></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=&gt;</span><span>
+</span><span id="line-105"></span><span>     </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-106"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054121"><span class="hs-identifier hs-type">s</span></a></span><span>
+</span><span id="line-107"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054118"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><a href="#local-6989586621679054121"><span class="hs-identifier hs-type">s</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-108"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-109"></span><span>          </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-110"></span><span>          </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">)</span><span class="hs-special">,</span><span>
+</span><span id="line-111"></span><span>          </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMMapSize"><span class="hs-identifier hs-type">ECMMapSize</span></a></span><span class="hs-special">,</span><span>
+</span><span id="line-112"></span><span>          </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMULength"><span class="hs-identifier hs-type">ECMULength</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-113"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054118"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span>
+</span><span id="line-114"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span><span>
+</span><span id="line-115"></span><span>         </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-116"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMMapSize"><span class="hs-identifier hs-type">ECMMapSize</span></a></span><span>
+</span><span id="line-117"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMMapSize"><span class="hs-identifier hs-type">ECMMapSize</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-118"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span class="hs-special">)</span><span class="hs-special">]</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMULength"><span class="hs-identifier hs-type">ECMULength</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-119"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span>
+</span><span id="line-120"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#ECMIncr"><span class="hs-identifier hs-type">ECMIncr</span></a></span><span>
+</span><span id="line-121"></span><span>     </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>       </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="#local-6989586621679054118"><span class="hs-identifier hs-type">m</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054121"><span class="hs-identifier hs-type">s</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054122"><span class="hs-identifier hs-type">mp</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054119"><span class="hs-identifier hs-type">k</span></a></span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054120"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span></span></span></span></span></span><span>
+</span><span id="line-123"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-pragma hs-type">detECM</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-124"></span><span id="detECM"><span class="annot"><span class="annottext">detECM :: forall (m :: * -&gt; *) k v s (mp :: * -&gt; * -&gt; *).
+(Monad m, Eq k) =&gt;
+Maybe (ECMULength, ECMULength, v)
+-&gt; Maybe s
+-&gt; m (ECMULength, (Maybe s, v))
+-&gt; ((ECMULength, ECMULength, v)
+    -&gt; mp k (ECMULength, ECMULength, v),
+    (ECMULength, ECMULength, v)
+    -&gt; [(k, ECMIncr)] -&gt; mp k (ECMULength, ECMULength, v),
+    [(k, ECMIncr)] -&gt; [(k, ECMIncr)], ECMULength, ECMULength)
+-&gt; m ECMULength
+-&gt; (((ECMULength, ECMULength, v) -&gt; Bool)
+    -&gt; mp k (ECMULength, ECMULength, v)
+    -&gt; mp k (ECMULength, ECMULength, v))
+-&gt; ECMULength
+-&gt; (mp k (ECMULength, ECMULength, v) -&gt; ECMULength)
+-&gt; ([(k, ECMIncr)], ECMULength)
+-&gt; ECMIncr
+-&gt; ECMIncr
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; m ((CacheState s mp k v, v), Bool)
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detECM"><span class="hs-identifier hs-var hs-var">detECM</span></a></span></span><span> </span><span id="local-6989586621679054273"><span class="annot"><span class="annottext">Maybe (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054273"><span class="hs-identifier hs-var">result</span></a></span></span><span> </span><span id="local-6989586621679054274"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054274"><span class="hs-identifier hs-var">retr_state</span></a></span></span><span> </span><span id="local-6989586621679054275"><span class="annot"><span class="annottext">m (ECMULength, (Maybe s, v))
+</span><a href="#local-6989586621679054275"><span class="hs-identifier hs-var">retr_id</span></a></span></span><span> </span><span id="local-6989586621679054276"><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; mp k (ECMULength, ECMULength, v),
+ (ECMULength, ECMULength, v)
+ -&gt; [(k, ECMIncr)] -&gt; mp k (ECMULength, ECMULength, v),
+ [(k, ECMIncr)] -&gt; [(k, ECMIncr)], ECMULength, ECMULength)
+</span><a href="#local-6989586621679054276"><span class="hs-identifier hs-var">etc</span></a></span></span><span>  </span><span id="local-6989586621679054277"><span class="annot"><span class="annottext">m ECMULength
+</span><a href="#local-6989586621679054277"><span class="hs-identifier hs-var">gettime</span></a></span></span><span> </span><span id="local-6989586621679054278"><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; Bool)
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054278"><span class="hs-identifier hs-var">filt</span></a></span></span><span>  </span><span id="local-6989586621679054279"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054279"><span class="hs-identifier hs-var">cmapsize</span></a></span></span><span> </span><span id="local-6989586621679054280"><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v) -&gt; ECMULength
+</span><a href="#local-6989586621679054280"><span class="hs-identifier hs-var">newsize</span></a></span></span><span> </span><span id="local-6989586621679054281"><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054281"><span class="hs-identifier hs-var">uses'</span></a></span></span><span> </span><span id="local-6989586621679054282"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054282"><span class="hs-identifier hs-var">incr'</span></a></span></span><span> </span><span id="local-6989586621679054283"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054283"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span></span><span> </span><span id="local-6989586621679054284"><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054284"><span class="hs-identifier hs-var">maps</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span>
+</span><span id="line-125"></span><span>    </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Maybe (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054273"><span class="hs-identifier hs-var">result</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-126"></span><span>        </span><span class="annot"><span class="annottext">Maybe (ECMULength, ECMULength, v)
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-127"></span><span>          </span><span class="hs-special">(</span><span id="local-6989586621679054285"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054285"><span class="hs-identifier hs-var">expirytime</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054286"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054286"><span class="hs-identifier hs-var">retr_state'</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054287"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054287"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m (ECMULength, (Maybe s, v))
+</span><a href="#local-6989586621679054275"><span class="hs-identifier hs-var">retr_id</span></a></span><span>
+</span><span id="line-128"></span><span>          </span><span id="local-6989586621679054288"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054288"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m ECMULength
+</span><a href="#local-6989586621679054277"><span class="hs-identifier hs-var">gettime</span></a></span><span>
+</span><span id="line-129"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054295"><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054295"><span class="hs-identifier hs-var">newmaps</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054296"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054296"><span class="hs-identifier hs-var">mapsize'</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054297"><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054297"><span class="hs-identifier hs-var">newuses</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; mp k (ECMULength, ECMULength, v),
+ (ECMULength, ECMULength, v)
+ -&gt; [(k, ECMIncr)] -&gt; mp k (ECMULength, ECMULength, v),
+ [(k, ECMIncr)] -&gt; [(k, ECMIncr)], ECMULength, ECMULength)
+-&gt; ECMULength
+-&gt; (mp k (ECMULength, ECMULength, v) -&gt; ECMULength)
+-&gt; (((ECMULength, ECMULength, v) -&gt; Bool)
+    -&gt; mp k (ECMULength, ECMULength, v)
+    -&gt; mp k (ECMULength, ECMULength, v))
+-&gt; ECMULength
+-&gt; v
+-&gt; ECMULength
+-&gt; ([(k, ECMIncr)], ECMULength)
+-&gt; (mp k (ECMULength, ECMULength, v), ECMULength,
+    ([(k, ECMIncr)], ECMULength))
+forall {b} {a} {a} {b} {c} {t} {b} {t} {c}.
+(Num b, Num a, Ord b, Ord a, Ord a) =&gt;
+((a, b, c) -&gt; t, (a, b, c) -&gt; [(b, a)] -&gt; t, [(b, a)] -&gt; [(b, a)],
+ ECMULength, b)
+-&gt; b
+-&gt; (t -&gt; b)
+-&gt; (((a, a, c) -&gt; Bool) -&gt; t -&gt; t)
+-&gt; a
+-&gt; c
+-&gt; b
+-&gt; ([(b, a)], ECMULength)
+-&gt; (t, b, ([(b, a)], ECMULength))
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#insertAndPerhapsRemoveSome"><span class="hs-identifier hs-var">insertAndPerhapsRemoveSome</span></a></span><span> </span><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; mp k (ECMULength, ECMULength, v),
+ (ECMULength, ECMULength, v)
+ -&gt; [(k, ECMIncr)] -&gt; mp k (ECMULength, ECMULength, v),
+ [(k, ECMIncr)] -&gt; [(k, ECMIncr)], ECMULength, ECMULength)
+</span><a href="#local-6989586621679054276"><span class="hs-identifier hs-var">etc</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054279"><span class="hs-identifier hs-var">cmapsize</span></a></span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v) -&gt; ECMULength
+</span><a href="#local-6989586621679054280"><span class="hs-identifier hs-var">newsize</span></a></span><span> </span><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; Bool)
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054278"><span class="hs-identifier hs-var">filt</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054288"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054287"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054285"><span class="hs-identifier hs-var">expirytime</span></a></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054281"><span class="hs-identifier hs-var">uses'</span></a></span><span>
+</span><span id="line-130"></span><span>          </span><span class="annot"><span class="annottext">((CacheState s mp k v, v), Bool)
+-&gt; m ((CacheState s mp k v, v), Bool)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(((CacheState s mp k v, v), Bool)
+ -&gt; m ((CacheState s mp k v, v), Bool))
+-&gt; ((CacheState s mp k v, v), Bool)
+-&gt; m ((CacheState s mp k v, v), Bool)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Maybe s, mp k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s mp k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054286"><span class="hs-identifier hs-var">retr_state'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054295"><span class="hs-identifier hs-var">newmaps</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054296"><span class="hs-identifier hs-var">mapsize'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054297"><span class="hs-identifier hs-var">newuses</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054282"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054287"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span class="hs-special">)</span><span>
+</span><span id="line-131"></span><span>        </span><span class="annot"><span class="hs-identifier hs-type">Just</span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054300"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054300"><span class="hs-identifier hs-var">_accesstime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054301"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054301"><span class="hs-identifier hs-var">_expirytime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054302"><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054302"><span class="hs-identifier hs-var">m</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-132"></span><span>          </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054282"><span class="hs-identifier hs-var">incr'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; ECMIncr
+forall a. Integral a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">`mod`</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054283"><span class="hs-identifier hs-var">timecheckmodulo</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr -&gt; ECMIncr -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">0</span></span><span>
+</span><span id="line-133"></span><span>            </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-134"></span><span>              </span><span id="local-6989586621679054304"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054304"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">m ECMULength
+</span><a href="#local-6989586621679054277"><span class="hs-identifier hs-var">gettime</span></a></span><span>
+</span><span id="line-135"></span><span>              </span><span class="annot"><span class="annottext">((CacheState s mp k v, v), Bool)
+-&gt; m ((CacheState s mp k v, v), Bool)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(((CacheState s mp k v, v), Bool)
+ -&gt; m ((CacheState s mp k v, v), Bool))
+-&gt; ((CacheState s mp k v, v), Bool)
+-&gt; m ((CacheState s mp k v, v), Bool)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679054305"><span class="annot"><span class="annottext">maps' :: mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054305"><span class="hs-identifier hs-var hs-var">maps'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECMULength
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054306"><span class="hs-identifier hs-var">filterExpired</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054304"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054284"><span class="hs-identifier hs-var">maps</span></a></span><span>
+</span><span id="line-136"></span><span>                         </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Maybe s, mp k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s mp k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054274"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054305"><span class="hs-identifier hs-var">maps'</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; ECMULength
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">ECMULength
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(ECMULength -&gt; ECMULength) -&gt; ECMULength -&gt; ECMULength
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v) -&gt; ECMULength
+</span><a href="#local-6989586621679054280"><span class="hs-identifier hs-var">newsize</span></a></span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054305"><span class="hs-identifier hs-var">maps'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054281"><span class="hs-identifier hs-var">uses'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054282"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054302"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">True</span></span><span class="hs-special">)</span><span>
+</span><span id="line-137"></span><span>            </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">((CacheState s mp k v, v), Bool)
+-&gt; m ((CacheState s mp k v, v), Bool)
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span class="annot"><span class="annottext">(Maybe s, mp k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s mp k v
+forall s (m :: * -&gt; * -&gt; *) k v.
+(Maybe s, m k (ECMULength, ECMULength, v), ECMULength,
+ ([(k, ECMIncr)], ECMULength), ECMIncr)
+-&gt; CacheState s m k v
+</span><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-var">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054274"><span class="hs-identifier hs-var">retr_state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054284"><span class="hs-identifier hs-var">maps</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054279"><span class="hs-identifier hs-var">cmapsize</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054281"><span class="hs-identifier hs-var">uses'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054282"><span class="hs-identifier hs-var">incr'</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">v
+</span><a href="#local-6989586621679054302"><span class="hs-identifier hs-var">m</span></a></span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">False</span></span><span class="hs-special">)</span><span>
+</span><span id="line-138"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-139"></span><span>    </span><span id="local-6989586621679054306"><span class="annot"><span class="annottext">filterExpired :: ECMULength
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054306"><span class="hs-identifier hs-var hs-var">filterExpired</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(((ECMULength, ECMULength, v) -&gt; Bool)
+ -&gt; mp k (ECMULength, ECMULength, v)
+ -&gt; mp k (ECMULength, ECMULength, v))
+-&gt; ECMULength
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+forall {a} {c} {t}.
+(Ord a, Num a) =&gt;
+(((a, a, c) -&gt; Bool) -&gt; t) -&gt; a -&gt; t
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#filterExpired%27"><span class="hs-identifier hs-var">filterExpired'</span></a></span><span> </span><span class="annot"><span class="annottext">((ECMULength, ECMULength, v) -&gt; Bool)
+-&gt; mp k (ECMULength, ECMULength, v)
+-&gt; mp k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054278"><span class="hs-identifier hs-var">filt</span></a></span><span>
+</span><span id="line-140"></span><span>  </span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#insertAndPerhapsRemoveSome"><span class="hs-pragma hs-type">insertAndPerhapsRemoveSome</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>  </span><span>
+</span><span id="line-143"></span><span id="insertAndPerhapsRemoveSome"><span class="annot"><span class="annottext">insertAndPerhapsRemoveSome :: ((a, b, c) -&gt; t, (a, b, c) -&gt; [(b, a)] -&gt; t, [(b, a)] -&gt; [(b, a)],
+ ECMULength, b)
+-&gt; b
+-&gt; (t -&gt; b)
+-&gt; (((a, a, c) -&gt; Bool) -&gt; t -&gt; t)
+-&gt; a
+-&gt; c
+-&gt; b
+-&gt; ([(b, a)], ECMULength)
+-&gt; (t, b, ([(b, a)], ECMULength))
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#insertAndPerhapsRemoveSome"><span class="hs-identifier hs-var hs-var">insertAndPerhapsRemoveSome</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054328"><span class="annot"><span class="annottext">(a, b, c) -&gt; t
+</span><a href="#local-6989586621679054328"><span class="hs-identifier hs-var">insert_id1</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054329"><span class="annot"><span class="annottext">(a, b, c) -&gt; [(b, a)] -&gt; t
+</span><a href="#local-6989586621679054329"><span class="hs-identifier hs-var">insert_id2</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054330"><span class="annot"><span class="annottext">[(b, a)] -&gt; [(b, a)]
+</span><a href="#local-6989586621679054330"><span class="hs-identifier hs-var">mnub</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054331"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054331"><span class="hs-identifier hs-var">minimumkeep</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054332"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054332"><span class="hs-identifier hs-var">removalsize</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679054333"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054333"><span class="hs-identifier hs-var">cmapsize</span></a></span></span><span> </span><span id="local-6989586621679054334"><span class="annot"><span class="annottext">t -&gt; b
+</span><a href="#local-6989586621679054334"><span class="hs-identifier hs-var">newsize</span></a></span></span><span> </span><span id="local-6989586621679054335"><span class="annot"><span class="annottext">((a, a, c) -&gt; Bool) -&gt; t -&gt; t
+</span><a href="#local-6989586621679054335"><span class="hs-identifier hs-var">filt</span></a></span></span><span> </span><span id="local-6989586621679054336"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054336"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span id="local-6989586621679054337"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679054337"><span class="hs-identifier hs-var">r</span></a></span></span><span> </span><span id="local-6989586621679054338"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054338"><span class="hs-identifier hs-var">expirytime</span></a></span></span><span> </span><span id="local-6989586621679054339"><span class="annot"><span class="annottext">([(b, a)], ECMULength)
+</span><a href="#local-6989586621679054339"><span class="hs-identifier hs-var">uses</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-144"></span><span>      </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054333"><span class="hs-identifier hs-var">cmapsize</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;=</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054332"><span class="hs-identifier hs-var">removalsize</span></a></span><span>
+</span><span id="line-145"></span><span>        </span><span class="hs-keyword">then</span><span> </span><span>
+</span><span id="line-146"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054340"><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054340"><span class="hs-identifier hs-var">keepuses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054341"><span class="annot"><span class="annottext">[b]
+</span><a href="#local-6989586621679054341"><span class="hs-identifier hs-var">_removekeys</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[(b, a)] -&gt; ([(b, a)], [b])
+</span><a href="#local-6989586621679054342"><span class="hs-identifier hs-var">getKeepAndRemove</span></a></span><span> </span><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054343"><span class="hs-identifier hs-var">usesl</span></a></span><span>
+</span><span id="line-147"></span><span>              </span><span id="local-6989586621679054344"><span class="annot"><span class="annottext">newmaps :: t
+</span><a href="#local-6989586621679054344"><span class="hs-identifier hs-var hs-var">newmaps</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a, b, c) -&gt; [(b, a)] -&gt; t
+</span><a href="#local-6989586621679054329"><span class="hs-identifier hs-var">insert_id2</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054336"><span class="hs-identifier hs-var">time</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054338"><span class="hs-identifier hs-var">expirytime</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679054337"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054340"><span class="hs-identifier hs-var">keepuses</span></a></span><span>
+</span><span id="line-148"></span><span>              </span><span id="local-6989586621679054345"><span class="annot"><span class="annottext">newmaps' :: t
+</span><a href="#local-6989586621679054345"><span class="hs-identifier hs-var hs-var">newmaps'</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">a -&gt; t -&gt; t
+</span><a href="#local-6989586621679054346"><span class="hs-identifier hs-var">filterExpired</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054336"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054344"><span class="hs-identifier hs-var">newmaps</span></a></span><span>
+</span><span id="line-149"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054345"><span class="hs-identifier hs-var">newmaps'</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">b
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(b -&gt; b) -&gt; b -&gt; b
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="annot"><span class="annottext">t -&gt; b
+</span><a href="#local-6989586621679054334"><span class="hs-identifier hs-var">newsize</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054345"><span class="hs-identifier hs-var">newmaps'</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054340"><span class="hs-identifier hs-var">keepuses</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ECMULength -&gt; ECMULength -&gt; ECMULength
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span class="annot"><span class="annottext">ECMULength
+</span><span class="hs-number">0</span></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(ECMULength -&gt; ECMULength) -&gt; ECMULength -&gt; ECMULength
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">[(b, a)] -&gt; ECMULength
+forall a. [a] -&gt; ECMULength
+forall (t :: * -&gt; *) a. Foldable t =&gt; t a -&gt; ECMULength
+</span><span class="hs-identifier hs-var">L.length</span></span><span> </span><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054340"><span class="hs-identifier hs-var">keepuses</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-150"></span><span>        </span><span class="hs-keyword">else</span><span>
+</span><span id="line-151"></span><span>          </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679054347"><span class="annot"><span class="annottext">newmaps :: t
+</span><a href="#local-6989586621679054347"><span class="hs-identifier hs-var hs-var">newmaps</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(a, b, c) -&gt; t
+</span><a href="#local-6989586621679054328"><span class="hs-identifier hs-var">insert_id1</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054336"><span class="hs-identifier hs-var">time</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054338"><span class="hs-identifier hs-var">expirytime</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679054337"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-152"></span><span>           </span><span class="hs-keyword">in</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054347"><span class="hs-identifier hs-var">newmaps</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054333"><span class="hs-identifier hs-var">cmapsize</span></a></span><span> </span><span class="annot"><span class="annottext">b -&gt; b -&gt; b
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">+</span></span><span> </span><span class="annot"><span class="annottext">b
+</span><span class="hs-number">1</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">([(b, a)], ECMULength)
+</span><a href="#local-6989586621679054339"><span class="hs-identifier hs-var">uses</span></a></span><span class="hs-special">)</span><span> </span><span class="hs-comment">-- filterExpired time</span><span>
+</span><span id="line-153"></span><span>      </span><span class="hs-keyword">where</span><span>
+</span><span id="line-154"></span><span>        </span><span class="hs-special">(</span><span id="local-6989586621679054343"><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054343"><span class="hs-identifier hs-var">usesl</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054348"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054348"><span class="hs-identifier hs-var">_lcount</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">([(b, a)], ECMULength)
+</span><a href="#local-6989586621679054339"><span class="hs-identifier hs-var">uses</span></a></span><span>
+</span><span id="line-155"></span><span>        </span><span id="local-6989586621679054342"><span class="annot"><span class="annottext">getKeepAndRemove :: [(b, a)] -&gt; ([(b, a)], [b])
+</span><a href="#local-6989586621679054342"><span class="hs-identifier hs-var hs-var">getKeepAndRemove</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-156"></span><span>          </span><span class="annot"><span class="annottext">([(a, b)], [(a, b)]) -&gt; ([(b, a)], [b])
+forall {b} {a} {a} {b}. ([(b, a)], [(a, b)]) -&gt; ([(a, b)], [b])
+</span><a href="#local-6989586621679054349"><span class="hs-identifier hs-var">finalTup</span></a></span><span> </span><span class="annot"><span class="annottext">(([(a, b)], [(a, b)]) -&gt; ([(b, a)], [b]))
+-&gt; ([(b, a)] -&gt; ([(a, b)], [(a, b)]))
+-&gt; [(b, a)]
+-&gt; ([(b, a)], [b])
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">ECMULength -&gt; [(a, b)] -&gt; ([(a, b)], [(a, b)])
+forall a. ECMULength -&gt; [a] -&gt; ([a], [a])
+</span><span class="hs-identifier hs-var">splitAt</span></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054331"><span class="hs-identifier hs-var">minimumkeep</span></a></span><span> </span><span class="annot"><span class="annottext">([(a, b)] -&gt; ([(a, b)], [(a, b)]))
+-&gt; ([(b, a)] -&gt; [(a, b)]) -&gt; [(b, a)] -&gt; ([(a, b)], [(a, b)])
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">[(a, b)] -&gt; [(a, b)]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">([(a, b)] -&gt; [(a, b)])
+-&gt; ([(b, a)] -&gt; [(a, b)]) -&gt; [(b, a)] -&gt; [(a, b)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span>
+</span><span id="line-157"></span><span>              </span><span class="annot"><span class="annottext">[(a, b)] -&gt; [(a, b)]
+forall {b}. [(a, b)] -&gt; [(a, b)]
+</span><a href="#local-6989586621679054353"><span class="hs-identifier hs-var">sortI</span></a></span><span> </span><span class="annot"><span class="annottext">([(a, b)] -&gt; [(a, b)])
+-&gt; ([(b, a)] -&gt; [(a, b)]) -&gt; [(b, a)] -&gt; [(a, b)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">((b, a) -&gt; (a, b)) -&gt; [(b, a)] -&gt; [(a, b)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="annot"><span class="annottext">(b, a) -&gt; (a, b)
+forall {b} {a}. (b, a) -&gt; (a, b)
+</span><a href="#local-6989586621679054354"><span class="hs-identifier hs-var">swap2</span></a></span><span> </span><span class="annot"><span class="annottext">([(b, a)] -&gt; [(a, b)])
+-&gt; ([(b, a)] -&gt; [(b, a)]) -&gt; [(b, a)] -&gt; [(a, b)]
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">[(b, a)] -&gt; [(b, a)]
+</span><a href="#local-6989586621679054330"><span class="hs-identifier hs-var">mnub</span></a></span><span>
+</span><span id="line-158"></span><span>            </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679054354"><span class="annot"><span class="annottext">swap2 :: (b, a) -&gt; (a, b)
+</span><a href="#local-6989586621679054354"><span class="hs-identifier hs-var hs-var">swap2</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054355"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054355"><span class="hs-identifier hs-var">a</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054356"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054356"><span class="hs-identifier hs-var">b</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054356"><span class="hs-identifier hs-var">b</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054355"><span class="hs-identifier hs-var">a</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-159"></span><span>                  </span><span id="local-6989586621679054349"><span class="annot"><span class="annottext">finalTup :: ([(b, a)], [(a, b)]) -&gt; ([(a, b)], [b])
+</span><a href="#local-6989586621679054349"><span class="hs-identifier hs-var hs-var">finalTup</span></a></span></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054357"><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054357"><span class="hs-identifier hs-var">l1</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054358"><span class="annot"><span class="annottext">[(a, b)]
+</span><a href="#local-6989586621679054358"><span class="hs-identifier hs-var">l2</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span>
+</span><span id="line-160"></span><span>                    </span><span class="hs-special">(</span><span class="annot"><span class="annottext">((b, a) -&gt; (a, b)) -&gt; [(b, a)] -&gt; [(a, b)]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679054359"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054359"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054360"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054360"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054360"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054359"><span class="hs-identifier hs-var">c</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(b, a)]
+</span><a href="#local-6989586621679054357"><span class="hs-identifier hs-var">l1</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">((a, b) -&gt; b) -&gt; [(a, b)] -&gt; [b]
+forall a b. (a -&gt; b) -&gt; [a] -&gt; [b]
+</span><span class="hs-identifier hs-var">map</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679054361"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054361"><span class="hs-identifier hs-var">c</span></a></span></span><span class="hs-special">,</span><span id="local-6989586621679054362"><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054362"><span class="hs-identifier hs-var">k</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">b
+</span><a href="#local-6989586621679054362"><span class="hs-identifier hs-var">k</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">[(a, b)]
+</span><a href="#local-6989586621679054358"><span class="hs-identifier hs-var">l2</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-161"></span><span>                  </span><span id="local-6989586621679054353"><span class="annot"><span class="annottext">sortI :: [(a, b)] -&gt; [(a, b)]
+</span><a href="#local-6989586621679054353"><span class="hs-identifier hs-var hs-var">sortI</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">((a, b) -&gt; (a, b) -&gt; Ordering) -&gt; [(a, b)] -&gt; [(a, b)]
+forall a. (a -&gt; a -&gt; Ordering) -&gt; [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">L.sortBy</span></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679054366"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054366"><span class="hs-identifier hs-var">l</span></a></span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054367"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054367"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">,</span><span class="annot"><span class="annottext">b
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Ordering
+forall a. Ord a =&gt; a -&gt; a -&gt; Ordering
+</span><span class="hs-identifier hs-var">compare</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054366"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054367"><span class="hs-identifier hs-var">r</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-162"></span><span>    </span><span>
+</span><span id="line-163"></span><span>
+</span><span id="line-164"></span><span>        </span><span id="local-6989586621679054346"><span class="annot"><span class="annottext">filterExpired :: a -&gt; t -&gt; t
+</span><a href="#local-6989586621679054346"><span class="hs-identifier hs-var hs-var">filterExpired</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(((a, a, c) -&gt; Bool) -&gt; t -&gt; t) -&gt; a -&gt; t -&gt; t
+forall {a} {c} {t}.
+(Ord a, Num a) =&gt;
+(((a, a, c) -&gt; Bool) -&gt; t) -&gt; a -&gt; t
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#filterExpired%27"><span class="hs-identifier hs-var">filterExpired'</span></a></span><span> </span><span class="annot"><span class="annottext">((a, a, c) -&gt; Bool) -&gt; t -&gt; t
+</span><a href="#local-6989586621679054335"><span class="hs-identifier hs-var">filt</span></a></span><span>
+</span><span id="line-165"></span><span>
+</span><span id="line-166"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#filterExpired%27"><span class="hs-pragma hs-type">filterExpired'</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-167"></span><span id="filterExpired%27"><span class="annot"><span class="annottext">filterExpired' :: (((a, a, c) -&gt; Bool) -&gt; t) -&gt; a -&gt; t
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#filterExpired%27"><span class="hs-identifier hs-var hs-var">filterExpired'</span></a></span></span><span> </span><span id="local-6989586621679054379"><span class="annot"><span class="annottext">((a, a, c) -&gt; Bool) -&gt; t
+</span><a href="#local-6989586621679054379"><span class="hs-identifier hs-var">filt</span></a></span></span><span> </span><span id="local-6989586621679054380"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054380"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-168"></span><span>      </span><span class="annot"><span class="annottext">((a, a, c) -&gt; Bool) -&gt; t
+</span><a href="#local-6989586621679054379"><span class="hs-identifier hs-var">filt</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span class="hs-special">(</span><span id="local-6989586621679054381"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054381"><span class="hs-identifier hs-var">accesstime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054382"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054382"><span class="hs-identifier hs-var">expirytime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054383"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679054383"><span class="hs-identifier hs-var">_value</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-169"></span><span>                 </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054381"><span class="hs-identifier hs-var">accesstime</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;=</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054380"><span class="hs-identifier hs-var">time</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span>
+</span><span id="line-170"></span><span>                   </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054381"><span class="hs-identifier hs-var">accesstime</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054380"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">a -&gt; a -&gt; a
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054382"><span class="hs-identifier hs-var">expirytime</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-171"></span><span>
+</span><span id="line-172"></span><span>
+</span><span id="line-173"></span><span id="local-6989586621679054163"><span id="local-6989586621679054164"><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-identifier hs-type">detNotExpired</span></a></span><span>
+</span><span id="line-174"></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><a href="#local-6989586621679054163"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Utils.Types.html#TimeUnits"><span class="hs-identifier hs-type">TimeUnits</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="#local-6989586621679054164"><span class="hs-identifier hs-type">v</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="annot"><a href="#local-6989586621679054163"><span class="hs-identifier hs-type">k</span></a></span><span class="hs-special">]</span></span></span><span>
+</span><span id="line-175"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-pragma hs-type">detNotExpired</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-176"></span><span id="detNotExpired"><span class="annot"><span class="annottext">detNotExpired :: forall k v. ECMULength -&gt; [(k, (ECMULength, ECMULength, v))] -&gt; [k]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired"><span class="hs-identifier hs-var hs-var">detNotExpired</span></a></span></span><span> </span><span id="local-6989586621679054388"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054388"><span class="hs-identifier hs-var">_time</span></a></span></span><span> </span><span id="local-6989586621679054389"><span class="annot"><span class="annottext">[(k, (ECMULength, ECMULength, v))]
+</span><a href="#local-6989586621679054389"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECMULength -&gt; [(k, (ECMULength, ECMULength, v))] -&gt; [k] -&gt; [k]
+forall {t} {a} {c}.
+(Ord t, Num t) =&gt;
+t -&gt; [(a, (t, t, c))] -&gt; [a] -&gt; [a]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-identifier hs-var">detNotExpired'</span></a></span><span> </span><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054388"><span class="hs-identifier hs-var">_time</span></a></span><span> </span><span class="annot"><span class="annottext">[(k, (ECMULength, ECMULength, v))]
+</span><a href="#local-6989586621679054389"><span class="hs-identifier hs-var">l</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-177"></span><span>
+</span><span id="line-178"></span><span class="hs-pragma">{-# INLINE</span><span> </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-pragma hs-type">detNotExpired'</span></a></span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-179"></span><span id="detNotExpired%27"><span class="annot"><span class="annottext">detNotExpired' :: t -&gt; [(a, (t, t, c))] -&gt; [a] -&gt; [a]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-identifier hs-var hs-var">detNotExpired'</span></a></span></span><span> </span><span id="local-6989586621679054398"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054398"><span class="hs-identifier hs-var">_time</span></a></span></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span> </span><span id="local-6989586621679054399"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679054399"><span class="hs-identifier hs-var">l</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">[a] -&gt; [a]
+forall a. [a] -&gt; [a]
+</span><span class="hs-identifier hs-var">reverse</span></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679054399"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-180"></span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-identifier hs-var">detNotExpired'</span></a></span><span>  </span><span id="local-6989586621679054400"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054400"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span class="hs-special">(</span><span class="hs-special">(</span><span id="local-6989586621679054401"><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054401"><span class="hs-identifier hs-var">key</span></a></span></span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054402"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054402"><span class="hs-identifier hs-var">accesstime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054403"><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054403"><span class="hs-identifier hs-var">expirytime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054404"><span class="annot"><span class="annottext">c
+</span><a href="#local-6989586621679054404"><span class="hs-identifier hs-var">_value</span></a></span></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span> </span><span id="local-6989586621679054405"><span class="annot"><span class="annottext">[(a, (t, t, c))]
+</span><a href="#local-6989586621679054405"><span class="hs-identifier hs-var">r</span></a></span></span><span class="hs-special">)</span><span> </span><span id="local-6989586621679054406"><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679054406"><span class="hs-identifier hs-var">l</span></a></span></span><span>
+</span><span id="line-181"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054402"><span class="hs-identifier hs-var">accesstime</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&lt;=</span></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054400"><span class="hs-identifier hs-var">time</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">&amp;&amp;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054402"><span class="hs-identifier hs-var">accesstime</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; Bool
+forall a. Ord a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">&gt;</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054400"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">t -&gt; t -&gt; t
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-glyph hs-var">-</span></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054403"><span class="hs-identifier hs-var">expirytime</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-182"></span><span>        </span><span class="annot"><span class="annottext">t -&gt; [(a, (t, t, c))] -&gt; [a] -&gt; [a]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-identifier hs-var">detNotExpired'</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054400"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">[(a, (t, t, c))]
+</span><a href="#local-6989586621679054405"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">a
+</span><a href="#local-6989586621679054401"><span class="hs-identifier hs-var">key</span></a></span><span class="annot"><span class="annottext">a -&gt; [a] -&gt; [a]
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679054406"><span class="hs-identifier hs-var">l</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-183"></span><span>  </span><span class="hs-glyph">|</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><span class="hs-identifier hs-var">otherwise</span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-184"></span><span>        </span><span class="annot"><span class="annottext">t -&gt; [(a, (t, t, c))] -&gt; [a] -&gt; [a]
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#detNotExpired%27"><span class="hs-identifier hs-var">detNotExpired'</span></a></span><span> </span><span class="annot"><span class="annottext">t
+</span><a href="#local-6989586621679054400"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">[(a, (t, t, c))]
+</span><a href="#local-6989586621679054405"><span class="hs-identifier hs-var">r</span></a></span><span> </span><span class="annot"><span class="annottext">[a]
+</span><a href="#local-6989586621679054406"><span class="hs-identifier hs-var">l</span></a></span><span>
+</span><span id="line-185"></span><span>
+</span><span id="line-186"></span><span>
+</span><span id="line-187"></span><span class="hs-comment">-- | Debugging function</span><span>
+</span><span id="line-188"></span><span class="hs-comment">--</span><span>
+</span><span id="line-189"></span><span id="getStatsString"><span class="annot"><span class="annottext">getStatsString :: ECM m b s m k v -&gt; m String
+</span><a href="Caching.ExpiringCacheMap.Internal.Internal.html#getStatsString"><span class="hs-identifier hs-var hs-var">getStatsString</span></a></span></span><span> </span><span id="local-6989586621679054427"><span class="annot"><span class="annottext">ECM m b s m k v
+</span><a href="#local-6989586621679054427"><span class="hs-identifier hs-var">ecm</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-190"></span><span>  </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#CacheState"><span class="hs-identifier hs-type">CacheState</span></a></span><span> </span><span class="hs-special">(</span><span id="local-6989586621679054428"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679054428"><span class="hs-identifier hs-var">_retr_state</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054429"><span class="annot"><span class="annottext">m k (ECMULength, ECMULength, v)
+</span><a href="#local-6989586621679054429"><span class="hs-identifier hs-var">_maps</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054430"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054430"><span class="hs-identifier hs-var">_mapsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054431"><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054431"><span class="hs-identifier hs-var">uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054432"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054432"><span class="hs-identifier hs-var">_incr</span></a></span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">ECMReadState m b s m k v
+</span><a href="#local-6989586621679054433"><span class="hs-identifier hs-var">ro</span></a></span><span> </span><span class="annot"><span class="annottext">b (CacheState s m k v)
+</span><a href="#local-6989586621679054434"><span class="hs-identifier hs-var">m'uses</span></a></span><span>
+</span><span id="line-191"></span><span>  </span><span class="annot"><span class="annottext">String -&gt; m String
+forall a. a -&gt; m a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(String -&gt; m String) -&gt; String -&gt; m String
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength) -&gt; String
+forall a. Show a =&gt; a -&gt; String
+</span><span class="hs-identifier hs-var">show</span></span><span> </span><span class="annot"><span class="annottext">([(k, ECMIncr)], ECMULength)
+</span><a href="#local-6989586621679054431"><span class="hs-identifier hs-var">uses</span></a></span><span>
+</span><span id="line-192"></span><span>  </span><span class="hs-keyword">where</span><span>
+</span><span id="line-193"></span><span>    </span><span class="annot"><a href="Caching.ExpiringCacheMap.Internal.Types.html#ECM"><span class="hs-identifier hs-type">ECM</span></a></span><span> </span><span class="hs-special">(</span><span> </span><span id="local-6989586621679054434"><span class="annot"><span class="annottext">b (CacheState s m k v)
+</span><a href="#local-6989586621679054434"><span class="hs-identifier hs-var">m'uses</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054437"><span class="annot"><span class="annottext">Maybe s -&gt; k -&gt; m (ECMULength, (Maybe s, v))
+</span><a href="#local-6989586621679054437"><span class="hs-identifier hs-var">_retr</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054438"><span class="annot"><span class="annottext">m ECMULength
+</span><a href="#local-6989586621679054438"><span class="hs-identifier hs-var">_gettime</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054439"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054439"><span class="hs-identifier hs-var">_minimumkeep</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054440"><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679054440"><span class="hs-identifier hs-var">_timecheckmodulo</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054441"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054441"><span class="hs-identifier hs-var">_removalsize</span></a></span></span><span class="hs-special">,</span><span>
+</span><span id="line-194"></span><span>          </span><span id="local-6989586621679054442"><span class="annot"><span class="annottext">ECMULength
+</span><a href="#local-6989586621679054442"><span class="hs-identifier hs-var">_compactlistsize</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054443"><span class="annot"><span class="annottext">ECMEnterState m b s m k v
+</span><a href="#local-6989586621679054443"><span class="hs-identifier hs-var">_enter</span></a></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679054433"><span class="annot"><span class="annottext">ECMReadState m b s m k v
+</span><a href="#local-6989586621679054433"><span class="hs-identifier hs-var">ro</span></a></span></span><span> </span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECM m b s m k v
+</span><a href="#local-6989586621679054427"><span class="hs-identifier hs-var">ecm</span></a></span><span>
+</span><span id="line-195"></span><span>
+</span><span id="line-196"></span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span></pre></body></html>

@@ -1,0 +1,848 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><link rel="stylesheet" type="text/css" href="style.css" /><script type="text/javascript" src="highlight.js"></script></head><body><pre><span class="hs-pragma">{-# LANGUAGE CPP, OverloadedStrings #-}</span><span>
+</span><span id="line-2"></span><span class="hs-comment">-- | Serve static files, subject to a policy that can filter or</span><span>
+</span><span id="line-3"></span><span class="hs-comment">--   modify incoming URIs. The flow is:</span><span>
+</span><span id="line-4"></span><span class="hs-comment">--</span><span>
+</span><span id="line-5"></span><span class="hs-comment">--   incoming request URI ==&gt; policies ==&gt; exists? ==&gt; respond</span><span>
+</span><span id="line-6"></span><span class="hs-comment">--</span><span>
+</span><span id="line-7"></span><span class="hs-comment">--   If any of the polices fail, or the file doesn't</span><span>
+</span><span id="line-8"></span><span class="hs-comment">--   exist, then the middleware gives up and calls the inner application.</span><span>
+</span><span id="line-9"></span><span class="hs-comment">--   If the file is found, the middleware chooses a content type based</span><span>
+</span><span id="line-10"></span><span class="hs-comment">--   on the file extension and returns the file contents as the response.</span><span>
+</span><span id="line-11"></span><span class="hs-keyword">module</span><span> </span><span class="hs-identifier">Network.Wai.Middleware.Static</span><span>
+</span><span id="line-12"></span><span>    </span><span class="hs-special">(</span><span> </span><span class="annot"><span class="hs-comment">-- * Middlewares</span></span><span>
+</span><span id="line-13"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#static"><span class="hs-identifier">static</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicy"><span class="hs-identifier">staticPolicy</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy"><span class="hs-identifier">unsafeStaticPolicy</span></a></span><span>
+</span><span id="line-14"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#static%27"><span class="hs-identifier">static'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicy%27"><span class="hs-identifier">staticPolicy'</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy%27"><span class="hs-identifier">unsafeStaticPolicy'</span></a></span><span>
+</span><span id="line-15"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticWithOptions"><span class="hs-identifier">staticWithOptions</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicyWithOptions"><span class="hs-identifier">staticPolicyWithOptions</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicyWithOptions"><span class="hs-identifier">unsafeStaticPolicyWithOptions</span></a></span><span>
+</span><span id="line-16"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-comment">-- * Options</span></span><span>
+</span><span id="line-17"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier">Options</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier">cacheContainer</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#mimeTypes"><span class="hs-identifier">mimeTypes</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier">defaultOptions</span></a></span><span>
+</span><span id="line-18"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-comment">-- * Cache Control</span></span><span>
+</span><span id="line-19"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CachingStrategy"><span class="hs-identifier">CachingStrategy</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier">FileMeta</span></a></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#initCaching"><span class="hs-identifier">initCaching</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier">CacheContainer</span></a></span><span>
+</span><span id="line-20"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-comment">-- * Policies</span></span><span>
+</span><span id="line-21"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier">Policy</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3C%7C%3E"><span class="hs-operator">(&lt;|&gt;)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator">(&gt;-&gt;)</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier">policy</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier">predicate</span></a></span><span>
+</span><span id="line-22"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#addBase"><span class="hs-identifier">addBase</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#addSlash"><span class="hs-identifier">addSlash</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#contains"><span class="hs-identifier">contains</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#hasPrefix"><span class="hs-identifier">hasPrefix</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#hasSuffix"><span class="hs-identifier">hasSuffix</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#noDots"><span class="hs-identifier">noDots</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#isNotAbsolute"><span class="hs-identifier">isNotAbsolute</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#only"><span class="hs-identifier">only</span></a></span><span>
+</span><span id="line-23"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-comment">-- * Utilities</span></span><span>
+</span><span id="line-24"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier">tryPolicy</span></a></span><span>
+</span><span id="line-25"></span><span>    </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-comment">-- * MIME types</span></span><span>
+</span><span id="line-26"></span><span>      </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#getMimeType"><span class="hs-identifier">getMimeType</span></a></span><span>
+</span><span id="line-27"></span><span>    </span><span class="hs-special">)</span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-28"></span><span>
+</span><span id="line-29"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Caching.ExpiringCacheMap.HashECM</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">newECMIO</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">lookupECM</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">CacheSettings</span></span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">consistentDuration</span></span><span class="hs-special">)</span><span>
+</span><span id="line-30"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Control.Monad</span></span><span>
+</span><span id="line-31"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Crypto.Hash.SHA1</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">SHA1</span></span><span>
+</span><span id="line-32"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString.Base16</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">Base16</span></span><span>
+</span><span id="line-33"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.List</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">L</span></span><span class="hs-cpp">
+#if !(MIN_VERSION_base(4,8,0))
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Data.Monoid</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Monoid</span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-cpp">#if !(MIN_VERSION_base(4,11,0))
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">Data.Semigroup</span><span> </span><span class="hs-special">(</span><span class="hs-identifier">Semigroup</span><span class="hs-special">(</span><span class="hs-glyph">..</span><span class="hs-special">)</span><span class="hs-special">)</span><span class="hs-cpp">
+#endif
+</span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Time</span></span><span>
+</span><span id="line-41"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Data.Time.Clock.POSIX</span></span><span>
+</span><span id="line-42"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Network.HTTP.Types</span></span><span>
+</span><span id="line-43"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Network.Mime</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">MimeType</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">defaultMimeLookup</span></span><span class="hs-special">)</span><span>
+</span><span id="line-44"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">Network.Wai</span></span><span>
+</span><span id="line-45"></span><span class="hs-keyword">import</span><span> </span><span class="annot"><span class="hs-identifier">System.Directory</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier">doesFileExist</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier">getModificationTime</span></span><span class="hs-special">)</span><span class="hs-cpp">
+#if !(MIN_VERSION_time(1,5,0))
+</span><span class="hs-keyword">import</span><span> </span><span class="hs-identifier">System.Locale</span><span class="hs-cpp">
+#endif
+</span><span class="hs-comment">-- import Crypto.Hash.Algorithms</span><span>
+</span><span id="line-50"></span><span class="hs-comment">-- import Crypto.Hash</span><span>
+</span><span id="line-51"></span><span class="hs-comment">-- import Data.ByteArray.Encoding</span><span>
+</span><span id="line-52"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BS</span></span><span>
+</span><span id="line-53"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString.Char8</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BSC</span></span><span>
+</span><span id="line-54"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.ByteString.Lazy</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">BSL</span></span><span>
+</span><span id="line-55"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">Data.Text</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">T</span></span><span>
+</span><span id="line-56"></span><span class="hs-keyword">import</span><span> </span><span class="hs-keyword">qualified</span><span> </span><span class="annot"><span class="hs-identifier">System.FilePath</span></span><span> </span><span class="hs-keyword">as</span><span> </span><span class="annot"><span class="hs-identifier">FP</span></span><span>
+</span><span id="line-57"></span><span>
+</span><span id="line-58"></span><span class="hs-comment">-- | Take an incoming URI and optionally modify or filter it.</span><span>
+</span><span id="line-59"></span><span class="hs-comment">--   The result will be treated as a filepath.</span><span>
+</span><span id="line-60"></span><span class="hs-keyword">newtype</span><span> </span><span id="Policy"><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-var">Policy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Policy"><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-var">Policy</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="tryPolicy"><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var hs-var">tryPolicy</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="annot"><span class="hs-comment">-- ^ Run a policy</span></span><span>
+</span><span id="line-61"></span><span>                        </span><span class="hs-special">}</span><span>
+</span><span id="line-62"></span><span>
+</span><span id="line-63"></span><span class="hs-comment">-- | Options for 'staticWithOptions' 'Middleware'.</span><span>
+</span><span id="line-64"></span><span class="hs-comment">--</span><span>
+</span><span id="line-65"></span><span class="hs-comment">-- Options can be set using record syntax on 'defaultOptions' with the fields below.</span><span>
+</span><span id="line-66"></span><span class="hs-keyword">data</span><span> </span><span id="Options"><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-var">Options</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span id="Options"><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-var">Options</span></a></span></span><span> </span><span class="hs-special">{</span><span> </span><span id="cacheContainer"><span class="annot"><span class="annottext">Options -&gt; CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var hs-var">cacheContainer</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span class="annot"><span class="hs-comment">-- ^ Cache container to use</span></span><span>
+</span><span id="line-67"></span><span>                       </span><span class="hs-special">,</span><span> </span><span id="mimeTypes"><span class="annot"><span class="annottext">Options -&gt; FilePath -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#mimeTypes"><span class="hs-identifier hs-var hs-var">mimeTypes</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MimeType</span></span><span> </span><span class="annot"><span class="hs-comment">-- ^ Compute MimeType from file name</span></span><span>
+</span><span id="line-68"></span><span>                       </span><span class="hs-special">}</span><span>
+</span><span id="line-69"></span><span>
+</span><span id="line-70"></span><span class="hs-comment">-- | Default options.</span><span>
+</span><span id="line-71"></span><span class="hs-comment">--</span><span>
+</span><span id="line-72"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-73"></span><span class="hs-comment">-- 'Options'</span><span>
+</span><span id="line-74"></span><span class="hs-comment">-- { 'cacheContainer' = 'CacheContainerEmpty' -- no caching</span><span>
+</span><span id="line-75"></span><span class="hs-comment">-- , 'mimeTypes'      = 'getMimeType'         -- use 'defaultMimeLookup' from 'Network.Mime'</span><span>
+</span><span id="line-76"></span><span class="hs-comment">-- }</span><span>
+</span><span id="line-77"></span><span class="hs-comment">-- @</span><span>
+</span><span id="line-78"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier hs-type">defaultOptions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-type">Options</span></a></span><span>
+</span><span id="line-79"></span><span id="defaultOptions"><span class="annot"><span class="annottext">defaultOptions :: Options
+</span><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier hs-var hs-var">defaultOptions</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-type">Options</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">cacheContainer :: CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var">cacheContainer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#CacheContainerEmpty"><span class="hs-identifier hs-var">CacheContainerEmpty</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">mimeTypes :: FilePath -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#mimeTypes"><span class="hs-identifier hs-var">mimeTypes</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#getMimeType"><span class="hs-identifier hs-var">getMimeType</span></a></span><span> </span><span class="hs-special">}</span><span>
+</span><span id="line-80"></span><span>
+</span><span id="line-81"></span><span class="hs-comment">-- | A cache strategy which should be used to</span><span>
+</span><span id="line-82"></span><span class="hs-comment">-- serve content matching a policy. Meta information is cached for a maxium of</span><span>
+</span><span id="line-83"></span><span class="hs-comment">-- 100 seconds before being recomputed.</span><span>
+</span><span id="line-84"></span><span class="hs-keyword">data</span><span> </span><span id="CachingStrategy"><span class="annot"><a href="Network.Wai.Middleware.Static.html#CachingStrategy"><span class="hs-identifier hs-var">CachingStrategy</span></a></span></span><span>
+</span><span id="line-85"></span><span>   </span><span class="annot"><span class="hs-comment">-- | Do not send any caching headers</span></span><span>
+</span><span id="line-86"></span><span>   </span><span class="hs-glyph">=</span><span> </span><span id="NoCaching"><span class="annot"><a href="Network.Wai.Middleware.Static.html#NoCaching"><span class="hs-identifier hs-var">NoCaching</span></a></span></span><span>
+</span><span id="line-87"></span><span>   </span><span class="annot"><span class="hs-comment">-- | Send common caching headers for public (non dynamic) static files</span></span><span>
+</span><span id="line-88"></span><span>   </span><span class="hs-glyph">|</span><span> </span><span id="PublicStaticCaching"><span class="annot"><a href="Network.Wai.Middleware.Static.html#PublicStaticCaching"><span class="hs-identifier hs-var">PublicStaticCaching</span></a></span></span><span>
+</span><span id="line-89"></span><span>   </span><span class="hs-comment">-- | Compute caching headers using the user specified function.</span><span>
+</span><span id="line-90"></span><span>   </span><span class="hs-comment">-- See &lt;http://www.mobify.com/blog/beginners-guide-to-http-cache-headers/&gt; for a detailed guide</span><span>
+</span><span id="line-91"></span><span>   </span><span class="hs-glyph">|</span><span> </span><span id="CustomCaching"><span class="annot"><a href="Network.Wai.Middleware.Static.html#CustomCaching"><span class="hs-identifier hs-var">CustomCaching</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-type">FileMeta</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">RequestHeaders</span></span><span class="hs-special">)</span><span>
+</span><span id="line-92"></span><span>
+</span><span id="line-93"></span><span class="hs-comment">-- | Note:</span><span>
+</span><span id="line-94"></span><span class="hs-comment">--   '(&lt;&gt;)' == @&gt;-&gt;@ (policy sequencing)</span><span>
+</span><span id="line-95"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679065496"><span id="local-6989586621679065499"><span class="annot"><span class="hs-identifier hs-type">Semigroup</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-96"></span><span>    </span><span id="local-6989586621679065504"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065504"><span class="hs-identifier hs-var">p1</span></a></span></span><span> </span><span id="local-6989586621679065505"><span class="annot"><span class="annottext">&lt;&gt; :: Policy -&gt; Policy -&gt; Policy
+</span><span class="hs-operator hs-var hs-var hs-var hs-var">&lt;&gt;</span></span></span><span> </span><span id="local-6989586621679065506"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065506"><span class="hs-identifier hs-var">p2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe FilePath
+-&gt; (FilePath -&gt; Maybe FilePath) -&gt; Maybe FilePath -&gt; Maybe FilePath
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var">tryPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065506"><span class="hs-identifier hs-var">p2</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">(Maybe FilePath -&gt; Maybe FilePath)
+-&gt; (FilePath -&gt; Maybe FilePath) -&gt; FilePath -&gt; Maybe FilePath
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var">tryPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065504"><span class="hs-identifier hs-var">p1</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-97"></span><span>
+</span><span id="line-98"></span><span class="hs-comment">-- | Note:</span><span>
+</span><span id="line-99"></span><span class="hs-comment">--   'mempty' == @policy Just@ (the always accepting policy)</span><span>
+</span><span id="line-100"></span><span class="hs-comment">--   'mappend' == @&gt;-&gt;@ (policy sequencing)</span><span>
+</span><span id="line-101"></span><span class="hs-keyword">instance</span><span> </span><span id="local-6989586621679065514"><span class="annot"><span class="hs-identifier hs-type">Monoid</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span></span><span> </span><span class="hs-keyword">where</span><span>
+</span><span id="line-102"></span><span>    </span><span id="local-6989586621679065517"><span class="annot"><span class="annottext">mempty :: Policy
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">mempty</span></span></span><span>  </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span>
+</span><span id="line-103"></span><span>    </span><span id="local-6989586621679065519"><span class="annot"><span class="annottext">mappend :: Policy -&gt; Policy -&gt; Policy
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var">mappend</span></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">(&lt;&gt;)</span></span><span>
+</span><span id="line-104"></span><span>
+</span><span id="line-105"></span><span class="annot"><span class="hs-comment">-- | Lift a function into a 'Policy'</span></span><span>
+</span><span id="line-106"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-type">policy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-107"></span><span id="policy"><span class="annot"><span class="annottext">policy :: (FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var hs-var">policy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-var">Policy</span></a></span><span>
+</span><span id="line-108"></span><span>
+</span><span id="line-109"></span><span class="annot"><span class="hs-comment">-- | Lift a predicate into a 'Policy'</span></span><span>
+</span><span id="line-110"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-type">predicate</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-111"></span><span id="predicate"><span class="annot"><span class="annottext">predicate :: (FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var hs-var">predicate</span></a></span></span><span> </span><span id="local-6989586621679065520"><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621679065520"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679065521"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065521"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><a href="#local-6989586621679065520"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065521"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065521"><span class="hs-identifier hs-var">s</span></a></span><span> </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span class="hs-special">)</span><span>
+</span><span id="line-112"></span><span>
+</span><span id="line-113"></span><span class="annot"><span class="hs-comment">-- | Sequence two policies. They are run from left to right. (Note: this is `mappend`)</span></span><span>
+</span><span id="line-114"></span><span class="hs-keyword">infixr</span><span> </span><span class="hs-number">5</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-type">&gt;-&gt;</span></a></span><span>
+</span><span id="line-115"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-type">(&gt;-&gt;)</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-116"></span><span id="%3E-%3E"><span class="annot"><span class="annottext">&gt;-&gt; :: Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-var hs-var">(&gt;-&gt;)</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+forall a. Semigroup a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">(&lt;&gt;)</span></span><span>
+</span><span id="line-117"></span><span>
+</span><span id="line-118"></span><span class="annot"><span class="hs-comment">-- | Choose between two policies. If the first fails, run the second.</span></span><span>
+</span><span id="line-119"></span><span class="hs-keyword">infixr</span><span> </span><span class="hs-number">4</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3C%7C%3E"><span class="hs-operator hs-type">&lt;|&gt;</span></a></span><span>
+</span><span id="line-120"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#%3C%7C%3E"><span class="hs-operator hs-type">(&lt;|&gt;)</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-121"></span><span id="local-6989586621679065522"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065522"><span class="hs-identifier hs-var">p1</span></a></span></span><span> </span><span id="%3C%7C%3E"><span class="annot"><span class="annottext">&lt;|&gt; :: Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3C%7C%3E"><span class="hs-operator hs-var hs-var">&lt;|&gt;</span></a></span></span><span> </span><span id="local-6989586621679065523"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065523"><span class="hs-identifier hs-var">p2</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="hs-special">(</span><span class="hs-glyph">\</span><span id="local-6989586621679065524"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065524"><span class="hs-identifier hs-var">s</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+-&gt; (FilePath -&gt; Maybe FilePath) -&gt; Maybe FilePath -&gt; Maybe FilePath
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var">tryPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065523"><span class="hs-identifier hs-var">p2</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065524"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var">tryPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065522"><span class="hs-identifier hs-var">p1</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065524"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-122"></span><span>
+</span><span id="line-123"></span><span class="hs-comment">-- | Add a base path to the URI</span><span>
+</span><span id="line-124"></span><span class="hs-comment">--</span><span>
+</span><span id="line-125"></span><span class="hs-comment">-- &gt; staticPolicy (addBase &quot;/home/user/files&quot;)</span><span>
+</span><span id="line-126"></span><span class="hs-comment">--</span><span>
+</span><span id="line-127"></span><span class="hs-comment">-- GET \&quot;foo\/bar\&quot; looks for \&quot;\/home\/user\/files\/foo\/bar\&quot;</span><span>
+</span><span id="line-128"></span><span class="hs-comment">--</span><span>
+</span><span id="line-129"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#addBase"><span class="hs-identifier hs-type">addBase</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-130"></span><span id="addBase"><span class="annot"><span class="annottext">addBase :: FilePath -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#addBase"><span class="hs-identifier hs-var hs-var">addBase</span></a></span></span><span> </span><span id="local-6989586621679065525"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065525"><span class="hs-identifier hs-var">b</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath)
+-&gt; (FilePath -&gt; FilePath) -&gt; FilePath -&gt; Maybe FilePath
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065525"><span class="hs-identifier hs-var">b</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; FilePath
+</span><span class="hs-operator hs-var">FP.&lt;/&gt;</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-131"></span><span>
+</span><span id="line-132"></span><span class="hs-comment">-- | Add an initial slash to to the URI, if not already present.</span><span>
+</span><span id="line-133"></span><span class="hs-comment">--</span><span>
+</span><span id="line-134"></span><span class="hs-comment">-- &gt; staticPolicy addSlash</span><span>
+</span><span id="line-135"></span><span class="hs-comment">--</span><span>
+</span><span id="line-136"></span><span class="hs-comment">-- GET \&quot;foo\/bar\&quot; looks for \&quot;\/foo\/bar\&quot;</span><span>
+</span><span id="line-137"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#addSlash"><span class="hs-identifier hs-type">addSlash</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-138"></span><span id="addSlash"><span class="annot"><span class="annottext">addSlash :: Policy
+</span><a href="Network.Wai.Middleware.Static.html#addSlash"><span class="hs-identifier hs-var hs-var">addSlash</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+</span><a href="#local-6989586621679065527"><span class="hs-identifier hs-var">slashOpt</span></a></span><span>
+</span><span id="line-139"></span><span>    </span><span class="hs-keyword">where</span><span> </span><span id="local-6989586621679065527"><span class="annot"><span class="annottext">slashOpt :: FilePath -&gt; Maybe FilePath
+</span><a href="#local-6989586621679065527"><span class="hs-identifier hs-var hs-var">slashOpt</span></a></span></span><span> </span><span id="local-6989586621679065528"><span class="annot"><span class="annottext">s :: FilePath
+</span><a href="#local-6989586621679065528"><span class="hs-identifier hs-var">s</span></a></span></span><span class="hs-glyph">@</span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'/'</span></span><span class="annot"><span class="hs-glyph hs-type">:</span></span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-identifier">_</span></span><span class="hs-special">)</span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065528"><span class="hs-identifier hs-var">s</span></a></span><span>
+</span><span id="line-140"></span><span>          </span><span class="annot"><a href="#local-6989586621679065527"><span class="hs-identifier hs-var">slashOpt</span></a></span><span> </span><span id="local-6989586621679065529"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065529"><span class="hs-identifier hs-var">s</span></a></span></span><span>         </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Maybe FilePath
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Char
+</span><span class="hs-char">'/'</span></span><span class="annot"><span class="annottext">Char -&gt; FilePath -&gt; FilePath
+forall a. a -&gt; [a] -&gt; [a]
+</span><span class="hs-glyph hs-var">:</span></span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065529"><span class="hs-identifier hs-var">s</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-141"></span><span>
+</span><span id="line-142"></span><span class="annot"><span class="hs-comment">-- | Accept only URIs with given suffix</span></span><span>
+</span><span id="line-143"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#hasSuffix"><span class="hs-identifier hs-type">hasSuffix</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-144"></span><span id="hasSuffix"><span class="annot"><span class="annottext">hasSuffix :: FilePath -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#hasSuffix"><span class="hs-identifier hs-var hs-var">hasSuffix</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var">predicate</span></a></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; Bool) -&gt; Policy)
+-&gt; (FilePath -&gt; FilePath -&gt; Bool) -&gt; FilePath -&gt; Policy
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; Bool
+forall a. Eq a =&gt; [a] -&gt; [a] -&gt; Bool
+</span><span class="hs-identifier hs-var">L.isSuffixOf</span></span><span>
+</span><span id="line-145"></span><span>
+</span><span id="line-146"></span><span class="annot"><span class="hs-comment">-- | Accept only URIs with given prefix</span></span><span>
+</span><span id="line-147"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#hasPrefix"><span class="hs-identifier hs-type">hasPrefix</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-148"></span><span id="hasPrefix"><span class="annot"><span class="annottext">hasPrefix :: FilePath -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#hasPrefix"><span class="hs-identifier hs-var hs-var">hasPrefix</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var">predicate</span></a></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; Bool) -&gt; Policy)
+-&gt; (FilePath -&gt; FilePath -&gt; Bool) -&gt; FilePath -&gt; Policy
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; Bool
+forall a. Eq a =&gt; [a] -&gt; [a] -&gt; Bool
+</span><span class="hs-identifier hs-var">L.isPrefixOf</span></span><span>
+</span><span id="line-149"></span><span>
+</span><span id="line-150"></span><span class="annot"><span class="hs-comment">-- | Accept only URIs containing given string</span></span><span>
+</span><span id="line-151"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#contains"><span class="hs-identifier hs-type">contains</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-152"></span><span id="contains"><span class="annot"><span class="annottext">contains :: FilePath -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#contains"><span class="hs-identifier hs-var hs-var">contains</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var">predicate</span></a></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; Bool) -&gt; Policy)
+-&gt; (FilePath -&gt; FilePath -&gt; Bool) -&gt; FilePath -&gt; Policy
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; Bool
+forall a. Eq a =&gt; [a] -&gt; [a] -&gt; Bool
+</span><span class="hs-identifier hs-var">L.isInfixOf</span></span><span>
+</span><span id="line-153"></span><span>
+</span><span id="line-154"></span><span class="annot"><span class="hs-comment">-- | Reject URIs containing \&quot;..\&quot;</span></span><span>
+</span><span id="line-155"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#noDots"><span class="hs-identifier hs-type">noDots</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-156"></span><span id="noDots"><span class="annot"><span class="annottext">noDots :: Policy
+</span><a href="Network.Wai.Middleware.Static.html#noDots"><span class="hs-identifier hs-var hs-var">noDots</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var">predicate</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; (FilePath -&gt; Bool) -&gt; FilePath -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; FilePath -&gt; Bool
+forall a. Eq a =&gt; [a] -&gt; [a] -&gt; Bool
+</span><span class="hs-identifier hs-var">L.isInfixOf</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;..&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-157"></span><span>
+</span><span id="line-158"></span><span class="annot"><span class="hs-comment">-- | Reject URIs that are absolute paths</span></span><span>
+</span><span id="line-159"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#isNotAbsolute"><span class="hs-identifier hs-type">isNotAbsolute</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-160"></span><span id="isNotAbsolute"><span class="annot"><span class="annottext">isNotAbsolute :: Policy
+</span><a href="Network.Wai.Middleware.Static.html#isNotAbsolute"><span class="hs-identifier hs-var hs-var">isNotAbsolute</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Bool) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#predicate"><span class="hs-identifier hs-var">predicate</span></a></span><span> </span><span class="annot"><span class="annottext">((FilePath -&gt; Bool) -&gt; Policy) -&gt; (FilePath -&gt; Bool) -&gt; Policy
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">not</span></span><span> </span><span class="annot"><span class="annottext">(Bool -&gt; Bool) -&gt; (FilePath -&gt; Bool) -&gt; FilePath -&gt; Bool
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Bool
+</span><span class="hs-identifier hs-var">FP.isAbsolute</span></span><span>
+</span><span id="line-161"></span><span>
+</span><span id="line-162"></span><span class="hs-comment">-- | Use URI as the key to an association list, rejecting those not found.</span><span>
+</span><span id="line-163"></span><span class="hs-comment">-- The policy result is the matching value.</span><span>
+</span><span id="line-164"></span><span class="hs-comment">--</span><span>
+</span><span id="line-165"></span><span class="hs-comment">-- &gt; staticPolicy (only [(&quot;foo/bar&quot;, &quot;/home/user/files/bar&quot;)])</span><span>
+</span><span id="line-166"></span><span class="hs-comment">--</span><span>
+</span><span id="line-167"></span><span class="hs-comment">-- GET \&quot;foo\/bar\&quot; looks for \&quot;\/home\/user\/files\/bar\&quot;</span><span>
+</span><span id="line-168"></span><span class="hs-comment">-- GET \&quot;baz\/bar\&quot; doesn't match anything</span><span>
+</span><span id="line-169"></span><span class="hs-comment">--</span><span>
+</span><span id="line-170"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#only"><span class="hs-identifier hs-type">only</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-special">[</span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="hs-identifier hs-type">String</span></span><span class="hs-special">)</span><span class="hs-special">]</span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span>
+</span><span id="line-171"></span><span id="only"><span class="annot"><span class="annottext">only :: [(FilePath, FilePath)] -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#only"><span class="hs-identifier hs-var hs-var">only</span></a></span></span><span> </span><span id="local-6989586621679065535"><span class="annot"><span class="annottext">[(FilePath, FilePath)]
+</span><a href="#local-6989586621679065535"><span class="hs-identifier hs-var">al</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#policy"><span class="hs-identifier hs-var">policy</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath -&gt; [(FilePath, FilePath)] -&gt; Maybe FilePath)
+-&gt; [(FilePath, FilePath)] -&gt; FilePath -&gt; Maybe FilePath
+forall a b c. (a -&gt; b -&gt; c) -&gt; b -&gt; a -&gt; c
+</span><span class="hs-identifier hs-var">flip</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; [(FilePath, FilePath)] -&gt; Maybe FilePath
+forall a b. Eq a =&gt; a -&gt; [(a, b)] -&gt; Maybe b
+</span><span class="hs-identifier hs-var">lookup</span></span><span> </span><span class="annot"><span class="annottext">[(FilePath, FilePath)]
+</span><a href="#local-6989586621679065535"><span class="hs-identifier hs-var">al</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-172"></span><span>
+</span><span id="line-173"></span><span class="hs-comment">-- | Serve static files out of the application root (current directory).</span><span>
+</span><span id="line-174"></span><span class="hs-comment">-- If file is found, it is streamed to the client and no further middleware is run. Disables caching.</span><span>
+</span><span id="line-175"></span><span class="hs-comment">--</span><span>
+</span><span id="line-176"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-177"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#static"><span class="hs-identifier hs-type">static</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-178"></span><span id="static"><span class="annot"><span class="annottext">static :: Middleware
+</span><a href="Network.Wai.Middleware.Static.html#static"><span class="hs-identifier hs-var hs-var">static</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicy"><span class="hs-identifier hs-var">staticPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+forall a. Monoid a =&gt; a
+</span><span class="hs-identifier hs-var">mempty</span></span><span>
+</span><span id="line-179"></span><span>
+</span><span id="line-180"></span><span class="hs-comment">-- | Serve static files out of the application root (current directory).</span><span>
+</span><span id="line-181"></span><span class="hs-comment">-- If file is found, it is streamed to the client and no further middleware is run. Allows a 'CachingStrategy'.</span><span>
+</span><span id="line-182"></span><span class="hs-comment">--</span><span>
+</span><span id="line-183"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-184"></span><span class="hs-pragma">{-# DEPRECATED</span><span> </span><span class="hs-pragma">static'</span><span>
+</span><span id="line-185"></span><span>    </span><span class="hs-pragma">[</span><span> </span><span class="hs-pragma">&quot;Use 'staticWithOptions' instead. &quot;</span><span>
+</span><span id="line-186"></span><span>    </span><span class="hs-pragma">,</span><span> </span><span class="hs-pragma">&quot;This function will be removed in the next major release.&quot;</span><span>
+</span><span id="line-187"></span><span>    </span><span class="hs-pragma">]</span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-188"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#static%27"><span class="hs-identifier hs-type">static'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-189"></span><span id="static%27"><span class="annot"><span class="annottext">static' :: CacheContainer -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#static%27"><span class="hs-identifier hs-var hs-var">static'</span></a></span></span><span> </span><span id="local-6989586621679065538"><span class="annot"><span class="annottext">CacheContainer
+</span><a href="#local-6989586621679065538"><span class="hs-identifier hs-var">cc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicy%27"><span class="hs-identifier hs-var">staticPolicy'</span></a></span><span> </span><span class="annot"><span class="annottext">CacheContainer
+</span><a href="#local-6989586621679065538"><span class="hs-identifier hs-var">cc</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+forall a. Monoid a =&gt; a
+</span><span class="hs-identifier hs-var">mempty</span></span><span>
+</span><span id="line-190"></span><span>
+</span><span id="line-191"></span><span class="hs-comment">-- | Serve static files out of the application root (current directory).</span><span>
+</span><span id="line-192"></span><span class="hs-comment">-- If file is found, it is streamed to the client and no further middleware is run. Takes 'Options'.</span><span>
+</span><span id="line-193"></span><span class="hs-comment">--</span><span>
+</span><span id="line-194"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-195"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticWithOptions"><span class="hs-identifier hs-type">staticWithOptions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-type">Options</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-196"></span><span id="staticWithOptions"><span class="annot"><span class="annottext">staticWithOptions :: Options -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticWithOptions"><span class="hs-identifier hs-var hs-var">staticWithOptions</span></a></span></span><span> </span><span id="local-6989586621679065539"><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065539"><span class="hs-identifier hs-var">options</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Options -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicyWithOptions"><span class="hs-identifier hs-var">staticPolicyWithOptions</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065539"><span class="hs-identifier hs-var">options</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+forall a. Monoid a =&gt; a
+</span><span class="hs-identifier hs-var">mempty</span></span><span>
+</span><span id="line-197"></span><span>
+</span><span id="line-198"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy'. Disables caching.</span><span>
+</span><span id="line-199"></span><span class="hs-comment">--</span><span>
+</span><span id="line-200"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-201"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicy"><span class="hs-identifier hs-type">staticPolicy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-202"></span><span id="staticPolicy"><span class="annot"><span class="annottext">staticPolicy :: Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicy"><span class="hs-identifier hs-var hs-var">staticPolicy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicy%27"><span class="hs-identifier hs-var">staticPolicy'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Options -&gt; CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var">cacheContainer</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier hs-var">defaultOptions</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-203"></span><span>
+</span><span id="line-204"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy' using a specified 'CachingStrategy'</span><span>
+</span><span id="line-205"></span><span class="hs-comment">--</span><span>
+</span><span id="line-206"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-207"></span><span class="hs-pragma">{-# DEPRECATED</span><span> </span><span class="hs-pragma">staticPolicy'</span><span>
+</span><span id="line-208"></span><span>    </span><span class="hs-pragma">[</span><span> </span><span class="hs-pragma">&quot;Use 'staticPolicyWithOptions' instead. &quot;</span><span>
+</span><span id="line-209"></span><span>    </span><span class="hs-pragma">,</span><span> </span><span class="hs-pragma">&quot;This function will be removed in the next major release.&quot;</span><span>
+</span><span id="line-210"></span><span>    </span><span class="hs-pragma">]</span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-211"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicy%27"><span class="hs-identifier hs-type">staticPolicy'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-212"></span><span id="staticPolicy%27"><span class="annot"><span class="annottext">staticPolicy' :: CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicy%27"><span class="hs-identifier hs-var hs-var">staticPolicy'</span></a></span></span><span> </span><span id="local-6989586621679065540"><span class="annot"><span class="annottext">CacheContainer
+</span><a href="#local-6989586621679065540"><span class="hs-identifier hs-var">cc</span></a></span></span><span> </span><span id="local-6989586621679065541"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065541"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy%27"><span class="hs-identifier hs-var">unsafeStaticPolicy'</span></a></span><span> </span><span class="annot"><span class="annottext">CacheContainer
+</span><a href="#local-6989586621679065540"><span class="hs-identifier hs-var">cc</span></a></span><span> </span><span class="annot"><span class="annottext">(Policy -&gt; Middleware) -&gt; Policy -&gt; Middleware
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="Network.Wai.Middleware.Static.html#noDots"><span class="hs-identifier hs-var">noDots</span></a></span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-var">&gt;-&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="Network.Wai.Middleware.Static.html#isNotAbsolute"><span class="hs-identifier hs-var">isNotAbsolute</span></a></span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-var">&gt;-&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065541"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-213"></span><span>
+</span><span id="line-214"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy' using specified 'Options'</span><span>
+</span><span id="line-215"></span><span class="hs-comment">--</span><span>
+</span><span id="line-216"></span><span class="hs-comment">-- Note: for security reasons, this uses the 'noDots' and 'isNotAbsolute' policy by default.</span><span>
+</span><span id="line-217"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#staticPolicyWithOptions"><span class="hs-identifier hs-type">staticPolicyWithOptions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-type">Options</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-218"></span><span id="staticPolicyWithOptions"><span class="annot"><span class="annottext">staticPolicyWithOptions :: Options -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#staticPolicyWithOptions"><span class="hs-identifier hs-var hs-var">staticPolicyWithOptions</span></a></span></span><span> </span><span id="local-6989586621679065542"><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065542"><span class="hs-identifier hs-var">options</span></a></span></span><span> </span><span id="local-6989586621679065543"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065543"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Options -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicyWithOptions"><span class="hs-identifier hs-var">unsafeStaticPolicyWithOptions</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065542"><span class="hs-identifier hs-var">options</span></a></span><span> </span><span class="annot"><span class="annottext">(Policy -&gt; Middleware) -&gt; Policy -&gt; Middleware
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="Network.Wai.Middleware.Static.html#noDots"><span class="hs-identifier hs-var">noDots</span></a></span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-var">&gt;-&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="Network.Wai.Middleware.Static.html#isNotAbsolute"><span class="hs-identifier hs-var">isNotAbsolute</span></a></span><span> </span><span class="annot"><span class="annottext">Policy -&gt; Policy -&gt; Policy
+</span><a href="Network.Wai.Middleware.Static.html#%3E-%3E"><span class="hs-operator hs-var">&gt;-&gt;</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065543"><span class="hs-identifier hs-var">p</span></a></span><span>
+</span><span id="line-219"></span><span>
+</span><span id="line-220"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy'. Unlike 'static' and 'staticPolicy', this</span><span>
+</span><span id="line-221"></span><span class="hs-comment">-- has no policies enabled by default and is hence insecure. Disables caching.</span><span>
+</span><span id="line-222"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy"><span class="hs-identifier hs-type">unsafeStaticPolicy</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-223"></span><span id="unsafeStaticPolicy"><span class="annot"><span class="annottext">unsafeStaticPolicy :: Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy"><span class="hs-identifier hs-var hs-var">unsafeStaticPolicy</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy%27"><span class="hs-identifier hs-var">unsafeStaticPolicy'</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Options -&gt; CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var">cacheContainer</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier hs-var">defaultOptions</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-224"></span><span>
+</span><span id="line-225"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy'. Unlike 'static' and 'staticPolicy', this</span><span>
+</span><span id="line-226"></span><span class="hs-comment">-- has no policies enabled by default, and is hence insecure. Also allows to set a 'CachingStrategy'.</span><span>
+</span><span id="line-227"></span><span class="hs-pragma">{-# DEPRECATED</span><span> </span><span class="hs-pragma">unsafeStaticPolicy'</span><span>
+</span><span id="line-228"></span><span>    </span><span class="hs-pragma">[</span><span> </span><span class="hs-pragma">&quot;Use 'unsafeStaticPolicyWithOptions' instead. &quot;</span><span>
+</span><span id="line-229"></span><span>    </span><span class="hs-pragma">,</span><span> </span><span class="hs-pragma">&quot;This function will be removed in the next major release.&quot;</span><span>
+</span><span id="line-230"></span><span>    </span><span class="hs-pragma">]</span><span> </span><span class="hs-pragma">#-}</span><span>
+</span><span id="line-231"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy%27"><span class="hs-identifier hs-type">unsafeStaticPolicy'</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-232"></span><span id="unsafeStaticPolicy%27"><span class="annot"><span class="annottext">unsafeStaticPolicy' :: CacheContainer -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicy%27"><span class="hs-identifier hs-var hs-var">unsafeStaticPolicy'</span></a></span></span><span> </span><span id="local-6989586621679065544"><span class="annot"><span class="annottext">CacheContainer
+</span><a href="#local-6989586621679065544"><span class="hs-identifier hs-var">cc</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Options -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicyWithOptions"><span class="hs-identifier hs-var">unsafeStaticPolicyWithOptions</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Options
+</span><a href="Network.Wai.Middleware.Static.html#defaultOptions"><span class="hs-identifier hs-var">defaultOptions</span></a></span><span> </span><span class="hs-special">{</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var">cacheContainer</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><a href="#local-6989586621679065544"><span class="hs-identifier hs-type">cc</span></a></span><span> </span><span class="hs-special">}</span><span class="hs-special">)</span><span>
+</span><span id="line-233"></span><span>
+</span><span id="line-234"></span><span class="hs-comment">-- | Serve static files subject to a 'Policy'. Unlike 'staticWithOptions' and 'staticPolicyWithOptions',</span><span>
+</span><span id="line-235"></span><span class="hs-comment">-- this has no policies enabled by default and is hence insecure. Takes 'Options'.</span><span>
+</span><span id="line-236"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicyWithOptions"><span class="hs-identifier hs-type">unsafeStaticPolicyWithOptions</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Options"><span class="hs-identifier hs-type">Options</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#Policy"><span class="hs-identifier hs-type">Policy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Middleware</span></span><span>
+</span><span id="line-237"></span><span id="unsafeStaticPolicyWithOptions"><span class="annot"><span class="annottext">unsafeStaticPolicyWithOptions :: Options -&gt; Policy -&gt; Middleware
+</span><a href="Network.Wai.Middleware.Static.html#unsafeStaticPolicyWithOptions"><span class="hs-identifier hs-var hs-var">unsafeStaticPolicyWithOptions</span></a></span></span><span> </span><span id="local-6989586621679065545"><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065545"><span class="hs-identifier hs-var">options</span></a></span></span><span> </span><span id="local-6989586621679065546"><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065546"><span class="hs-identifier hs-var">p</span></a></span></span><span> </span><span id="local-6989586621679065547"><span class="annot"><span class="annottext">Application
+</span><a href="#local-6989586621679065547"><span class="hs-identifier hs-var">app</span></a></span></span><span> </span><span id="local-6989586621679065548"><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679065548"><span class="hs-identifier hs-var">req</span></a></span></span><span> </span><span id="local-6989586621679065549"><span class="annot"><span class="annottext">Response -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065549"><span class="hs-identifier hs-var">callback</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-238"></span><span>    </span><span class="annot"><span class="annottext">IO ResponseReceived
+-&gt; (FilePath -&gt; IO ResponseReceived)
+-&gt; Maybe FilePath
+-&gt; IO ResponseReceived
+forall b a. b -&gt; (a -&gt; b) -&gt; Maybe a -&gt; b
+</span><span class="hs-identifier hs-var">maybe</span></span><span> </span><span class="annot"><span class="annottext">IO ResponseReceived
+</span><a href="#local-6989586621679065550"><span class="hs-identifier hs-var">serveUpstream</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065551"><span class="hs-identifier hs-var">tryStaticFile</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe FilePath
+</span><a href="#local-6989586621679065552"><span class="hs-identifier hs-var">mCandidateFile</span></a></span><span>
+</span><span id="line-239"></span><span>    </span><span class="hs-keyword">where</span><span>
+</span><span id="line-240"></span><span>      </span><span class="annot"><a href="#local-6989586621679065550"><span class="hs-identifier hs-type">serveUpstream</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">ResponseReceived</span></span><span>
+</span><span id="line-241"></span><span>      </span><span id="local-6989586621679065550"><span class="annot"><span class="annottext">serveUpstream :: IO ResponseReceived
+</span><a href="#local-6989586621679065550"><span class="hs-identifier hs-var hs-var">serveUpstream</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Application
+</span><a href="#local-6989586621679065547"><span class="hs-identifier hs-var">app</span></a></span><span> </span><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679065548"><span class="hs-identifier hs-var">req</span></a></span><span> </span><span class="annot"><span class="annottext">Response -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065549"><span class="hs-identifier hs-var">callback</span></a></span><span>
+</span><span id="line-242"></span><span>
+</span><span id="line-243"></span><span>      </span><span class="annot"><a href="#local-6989586621679065551"><span class="hs-identifier hs-type">tryStaticFile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">ResponseReceived</span></span><span>
+</span><span id="line-244"></span><span>      </span><span id="local-6989586621679065551"><span class="annot"><span class="annottext">tryStaticFile :: FilePath -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065551"><span class="hs-identifier hs-var hs-var">tryStaticFile</span></a></span></span><span> </span><span id="local-6989586621679065553"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="hs-keyword">do</span><span>
+</span><span id="line-245"></span><span>          </span><span id="local-6989586621679065554"><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679065554"><span class="hs-identifier hs-var">exists</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO Bool
+</span><span class="hs-identifier hs-var">doesFileExist</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-246"></span><span>          </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679065554"><span class="hs-identifier hs-var">exists</span></a></span><span>
+</span><span id="line-247"></span><span>                  </span><span class="hs-keyword">then</span><span> </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">Options -&gt; CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#cacheContainer"><span class="hs-identifier hs-var">cacheContainer</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065545"><span class="hs-identifier hs-var">options</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-248"></span><span>                         </span><span class="annot"><span class="annottext">CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#CacheContainerEmpty"><span class="hs-identifier hs-var">CacheContainerEmpty</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-249"></span><span>                             </span><span class="annot"><span class="annottext">FilePath -&gt; [(HeaderName, Method)] -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065555"><span class="hs-identifier hs-var">sendFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-250"></span><span>                         </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO FileMeta
+</span><span class="hs-identifier">_</span></span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="Network.Wai.Middleware.Static.html#NoCaching"><span class="hs-identifier hs-var">NoCaching</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-251"></span><span>                             </span><span class="annot"><span class="annottext">FilePath -&gt; [(HeaderName, Method)] -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065555"><span class="hs-identifier hs-var">sendFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-252"></span><span>                         </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span> </span><span id="local-6989586621679065557"><span class="annot"><span class="annottext">FilePath -&gt; IO FileMeta
+</span><a href="#local-6989586621679065557"><span class="hs-identifier hs-var">getFileMeta</span></a></span></span><span> </span><span id="local-6989586621679065558"><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065558"><span class="hs-identifier hs-var">strategy</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-253"></span><span>                             </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679065559"><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065559"><span class="hs-identifier hs-var">fileMeta</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO FileMeta
+</span><a href="#local-6989586621679065557"><span class="hs-identifier hs-var">getFileMeta</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-254"></span><span>                                </span><span class="hs-keyword">if</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; Maybe Method -&gt; Maybe Method -&gt; Bool
+</span><a href="#local-6989586621679065560"><span class="hs-identifier hs-var">checkNotModified</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065559"><span class="hs-identifier hs-var">fileMeta</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName -&gt; Maybe Method
+</span><a href="#local-6989586621679065561"><span class="hs-identifier hs-var">readHeader</span></a></span><span> </span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;If-Modified-Since&quot;</span></span><span class="hs-special">)</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName -&gt; Maybe Method
+</span><a href="#local-6989586621679065561"><span class="hs-identifier hs-var">readHeader</span></a></span><span> </span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;If-None-Match&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-255"></span><span>                                </span><span class="hs-keyword">then</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; CachingStrategy -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065562"><span class="hs-identifier hs-var">sendNotModified</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065559"><span class="hs-identifier hs-var">fileMeta</span></a></span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065558"><span class="hs-identifier hs-var">strategy</span></a></span><span>
+</span><span id="line-256"></span><span>                                </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; [(HeaderName, Method)] -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065555"><span class="hs-identifier hs-var">sendFile</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065553"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FileMeta -&gt; CachingStrategy -&gt; [(HeaderName, Method)]
+</span><a href="#local-6989586621679065563"><span class="hs-identifier hs-var">computeHeaders</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065559"><span class="hs-identifier hs-var">fileMeta</span></a></span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065558"><span class="hs-identifier hs-var">strategy</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-257"></span><span>                  </span><span class="hs-keyword">else</span><span> </span><span class="annot"><span class="annottext">IO ResponseReceived
+</span><a href="#local-6989586621679065550"><span class="hs-identifier hs-var">serveUpstream</span></a></span><span>
+</span><span id="line-258"></span><span>
+</span><span id="line-259"></span><span>      </span><span class="annot"><a href="#local-6989586621679065552"><span class="hs-identifier hs-type">mCandidateFile</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Maybe</span></span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span>
+</span><span id="line-260"></span><span>      </span><span id="local-6989586621679065552"><span class="annot"><span class="annottext">mCandidateFile :: Maybe FilePath
+</span><a href="#local-6989586621679065552"><span class="hs-identifier hs-var hs-var">mCandidateFile</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-261"></span><span>          </span><span class="annot"><span class="annottext">Bool -&gt; Maybe ()
+forall (f :: * -&gt; *). Alternative f =&gt; Bool -&gt; f ()
+</span><span class="hs-identifier hs-var">guard</span></span><span> </span><span class="annot"><span class="annottext">Bool
+</span><a href="#local-6989586621679065564"><span class="hs-identifier hs-var">isHeadOrGet</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe () -&gt; Maybe FilePath -&gt; Maybe FilePath
+forall a b. Maybe a -&gt; Maybe b -&gt; Maybe b
+forall (m :: * -&gt; *) a b. Monad m =&gt; m a -&gt; m b -&gt; m b
+</span><span class="hs-operator hs-var">&gt;&gt;</span></span><span>
+</span><span id="line-262"></span><span>          </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Policy -&gt; FilePath -&gt; Maybe FilePath
+</span><a href="Network.Wai.Middleware.Static.html#tryPolicy"><span class="hs-identifier hs-var">tryPolicy</span></a></span><span> </span><span class="annot"><span class="annottext">Policy
+</span><a href="#local-6989586621679065546"><span class="hs-identifier hs-var">p</span></a></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Maybe FilePath) -&gt; FilePath -&gt; Maybe FilePath
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; FilePath
+</span><span class="hs-identifier hs-var">T.unpack</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; FilePath) -&gt; Text -&gt; FilePath
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Text -&gt; [Text] -&gt; Text
+</span><span class="hs-identifier hs-var">T.intercalate</span></span><span> </span><span class="annot"><span class="annottext">Text
+</span><span class="hs-string">&quot;/&quot;</span></span><span> </span><span class="annot"><span class="annottext">([Text] -&gt; Text) -&gt; [Text] -&gt; Text
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Request -&gt; [Text]
+</span><span class="hs-identifier hs-var">pathInfo</span></span><span> </span><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679065548"><span class="hs-identifier hs-var">req</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-263"></span><span>          </span><span class="hs-keyword">where</span><span>
+</span><span id="line-264"></span><span>            </span><span class="annot"><a href="#local-6989586621679065568"><span class="hs-identifier hs-type">method</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Method</span></span><span>
+</span><span id="line-265"></span><span>            </span><span id="local-6989586621679065568"><span class="annot"><span class="annottext">method :: Method
+</span><a href="#local-6989586621679065568"><span class="hs-identifier hs-var hs-var">method</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Request -&gt; Method
+</span><span class="hs-identifier hs-var">requestMethod</span></span><span> </span><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679065548"><span class="hs-identifier hs-var">req</span></a></span><span>
+</span><span id="line-266"></span><span>
+</span><span id="line-267"></span><span>            </span><span class="annot"><a href="#local-6989586621679065564"><span class="hs-identifier hs-type">isHeadOrGet</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">Bool</span></span><span>
+</span><span id="line-268"></span><span>            </span><span id="local-6989586621679065564"><span class="annot"><span class="annottext">isHeadOrGet :: Bool
+</span><a href="#local-6989586621679065564"><span class="hs-identifier hs-var hs-var">isHeadOrGet</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Method
+</span><a href="#local-6989586621679065568"><span class="hs-identifier hs-var">method</span></a></span><span> </span><span class="annot"><span class="annottext">Method -&gt; Method -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Method
+</span><span class="hs-identifier hs-var">methodHead</span></span><span> </span><span class="annot"><span class="annottext">Bool -&gt; Bool -&gt; Bool
+</span><span class="hs-operator hs-var">||</span></span><span> </span><span class="annot"><span class="annottext">Method
+</span><a href="#local-6989586621679065568"><span class="hs-identifier hs-var">method</span></a></span><span> </span><span class="annot"><span class="annottext">Method -&gt; Method -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Method
+</span><span class="hs-identifier hs-var">methodGet</span></span><span>
+</span><span id="line-269"></span><span>
+</span><span id="line-270"></span><span>      </span><span id="local-6989586621679065561"><span class="annot"><span class="annottext">readHeader :: HeaderName -&gt; Maybe Method
+</span><a href="#local-6989586621679065561"><span class="hs-identifier hs-var hs-var">readHeader</span></a></span></span><span> </span><span id="local-6989586621679065576"><span class="annot"><span class="annottext">HeaderName
+</span><a href="#local-6989586621679065576"><span class="hs-identifier hs-var">header</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-271"></span><span>          </span><span class="annot"><span class="annottext">HeaderName -&gt; [(HeaderName, Method)] -&gt; Maybe Method
+forall a b. Eq a =&gt; a -&gt; [(a, b)] -&gt; Maybe b
+</span><span class="hs-identifier hs-var">lookup</span></span><span> </span><span class="annot"><span class="annottext">HeaderName
+</span><a href="#local-6989586621679065576"><span class="hs-identifier hs-var">header</span></a></span><span> </span><span class="annot"><span class="annottext">([(HeaderName, Method)] -&gt; Maybe Method)
+-&gt; [(HeaderName, Method)] -&gt; Maybe Method
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Request -&gt; [(HeaderName, Method)]
+</span><span class="hs-identifier hs-var">requestHeaders</span></span><span> </span><span class="annot"><span class="annottext">Request
+</span><a href="#local-6989586621679065548"><span class="hs-identifier hs-var">req</span></a></span><span>
+</span><span id="line-272"></span><span>      </span><span id="local-6989586621679065560"><span class="annot"><span class="annottext">checkNotModified :: FileMeta -&gt; Maybe Method -&gt; Maybe Method -&gt; Bool
+</span><a href="#local-6989586621679065560"><span class="hs-identifier hs-var hs-var">checkNotModified</span></a></span></span><span> </span><span id="local-6989586621679065584"><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065584"><span class="hs-identifier hs-var">fm</span></a></span></span><span> </span><span id="local-6989586621679065585"><span class="annot"><span class="annottext">Maybe Method
+</span><a href="#local-6989586621679065585"><span class="hs-identifier hs-var">modSince</span></a></span></span><span> </span><span id="local-6989586621679065586"><span class="annot"><span class="annottext">Maybe Method
+</span><a href="#local-6989586621679065586"><span class="hs-identifier hs-var">etag</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-273"></span><span>          </span><span class="annot"><span class="annottext">[Bool] -&gt; Bool
+forall (t :: * -&gt; *). Foldable t =&gt; t Bool -&gt; Bool
+</span><span class="hs-identifier hs-var">or</span></span><span> </span><span class="hs-special">[</span><span> </span><span class="annot"><span class="annottext">Method -&gt; Maybe Method
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_lastModified"><span class="hs-identifier hs-var">fm_lastModified</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065584"><span class="hs-identifier hs-var">fm</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe Method -&gt; Maybe Method -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Maybe Method
+</span><a href="#local-6989586621679065585"><span class="hs-identifier hs-var">modSince</span></a></span><span>
+</span><span id="line-274"></span><span>             </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Method -&gt; Maybe Method
+forall a. a -&gt; Maybe a
+</span><span class="hs-identifier hs-var">Just</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_etag"><span class="hs-identifier hs-var">fm_etag</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065584"><span class="hs-identifier hs-var">fm</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">Maybe Method -&gt; Maybe Method -&gt; Bool
+forall a. Eq a =&gt; a -&gt; a -&gt; Bool
+</span><span class="hs-operator hs-var">==</span></span><span> </span><span class="annot"><span class="annottext">Maybe Method
+</span><a href="#local-6989586621679065586"><span class="hs-identifier hs-var">etag</span></a></span><span>
+</span><span id="line-275"></span><span>             </span><span class="hs-special">]</span><span>
+</span><span id="line-276"></span><span>      </span><span id="local-6989586621679065563"><span class="annot"><span class="annottext">computeHeaders :: FileMeta -&gt; CachingStrategy -&gt; [(HeaderName, Method)]
+</span><a href="#local-6989586621679065563"><span class="hs-identifier hs-var hs-var">computeHeaders</span></a></span></span><span> </span><span id="local-6989586621679065598"><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065598"><span class="hs-identifier hs-var">fm</span></a></span></span><span> </span><span id="local-6989586621679065599"><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065599"><span class="hs-identifier hs-var">cs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-277"></span><span>          </span><span class="hs-keyword">case</span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065599"><span class="hs-identifier hs-var">cs</span></a></span><span> </span><span class="hs-keyword">of</span><span>
+</span><span id="line-278"></span><span>            </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="Network.Wai.Middleware.Static.html#NoCaching"><span class="hs-identifier hs-var">NoCaching</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="hs-special">[</span><span class="hs-special">]</span><span>
+</span><span id="line-279"></span><span>            </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="Network.Wai.Middleware.Static.html#PublicStaticCaching"><span class="hs-identifier hs-var">PublicStaticCaching</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-280"></span><span>                </span><span class="hs-special">[</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;Cache-Control&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Method
+</span><span class="hs-string">&quot;no-transform,public,max-age=300,s-maxage=900&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-281"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;Last-Modified&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_lastModified"><span class="hs-identifier hs-var">fm_lastModified</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065598"><span class="hs-identifier hs-var">fm</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-282"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;ETag&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_etag"><span class="hs-identifier hs-var">fm_etag</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065598"><span class="hs-identifier hs-var">fm</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-283"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;Vary&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Method
+</span><span class="hs-string">&quot;Accept-Encoding&quot;</span></span><span class="hs-special">)</span><span>
+</span><span id="line-284"></span><span>                </span><span class="hs-special">]</span><span>
+</span><span id="line-285"></span><span>            </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CustomCaching"><span class="hs-identifier hs-type">CustomCaching</span></a></span><span> </span><span id="local-6989586621679065600"><span class="annot"><span class="annottext">FileMeta -&gt; [(HeaderName, Method)]
+</span><a href="#local-6989586621679065600"><span class="hs-identifier hs-var">f</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; [(HeaderName, Method)]
+</span><a href="#local-6989586621679065600"><span class="hs-identifier hs-var">f</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065598"><span class="hs-identifier hs-var">fm</span></a></span><span>
+</span><span id="line-286"></span><span>      </span><span id="local-6989586621679065562"><span class="annot"><span class="annottext">sendNotModified :: FileMeta -&gt; CachingStrategy -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065562"><span class="hs-identifier hs-var hs-var">sendNotModified</span></a></span></span><span> </span><span id="local-6989586621679065601"><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065601"><span class="hs-identifier hs-var">fm</span></a></span></span><span> </span><span id="local-6989586621679065602"><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065602"><span class="hs-identifier hs-var">cs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-287"></span><span>          </span><span class="hs-keyword">do</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679065603"><span class="annot"><span class="annottext">cacheHeaders :: [(HeaderName, Method)]
+</span><a href="#local-6989586621679065603"><span class="hs-identifier hs-var hs-var">cacheHeaders</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FileMeta -&gt; CachingStrategy -&gt; [(HeaderName, Method)]
+</span><a href="#local-6989586621679065563"><span class="hs-identifier hs-var">computeHeaders</span></a></span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065601"><span class="hs-identifier hs-var">fm</span></a></span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065602"><span class="hs-identifier hs-var">cs</span></a></span><span>
+</span><span id="line-288"></span><span>             </span><span class="annot"><span class="annottext">Response -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065549"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(Response -&gt; IO ResponseReceived)
+-&gt; Response -&gt; IO ResponseReceived
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Status -&gt; [(HeaderName, Method)] -&gt; ByteString -&gt; Response
+</span><span class="hs-identifier hs-var">responseLBS</span></span><span> </span><span class="annot"><span class="annottext">Status
+</span><span class="hs-identifier hs-var">status304</span></span><span> </span><span class="annot"><span class="annottext">[(HeaderName, Method)]
+</span><a href="#local-6989586621679065603"><span class="hs-identifier hs-var">cacheHeaders</span></a></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><span class="hs-identifier hs-var">BSL.empty</span></span><span>
+</span><span id="line-289"></span><span>      </span><span id="local-6989586621679065555"><span class="annot"><span class="annottext">sendFile :: FilePath -&gt; [(HeaderName, Method)] -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065555"><span class="hs-identifier hs-var hs-var">sendFile</span></a></span></span><span> </span><span id="local-6989586621679065607"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065607"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span id="local-6989586621679065608"><span class="annot"><span class="annottext">[(HeaderName, Method)]
+</span><a href="#local-6989586621679065608"><span class="hs-identifier hs-var">extraHeaders</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-290"></span><span>          </span><span class="hs-keyword">do</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679065612"><span class="annot"><span class="annottext">basicHeaders :: [(HeaderName, Method)]
+</span><a href="#local-6989586621679065612"><span class="hs-identifier hs-var hs-var">basicHeaders</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-291"></span><span>                     </span><span class="hs-special">[</span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">HeaderName
+</span><span class="hs-string">&quot;Content-Type&quot;</span></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">Options -&gt; FilePath -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#mimeTypes"><span class="hs-identifier hs-var">mimeTypes</span></a></span><span> </span><span class="annot"><span class="annottext">Options
+</span><a href="#local-6989586621679065545"><span class="hs-identifier hs-var">options</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065607"><span class="hs-identifier hs-var">fp</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-292"></span><span>                     </span><span class="hs-special">]</span><span>
+</span><span id="line-293"></span><span>                 </span><span id="local-6989586621679065613"><span class="annot"><span class="annottext">headers :: [(HeaderName, Method)]
+</span><a href="#local-6989586621679065613"><span class="hs-identifier hs-var hs-var">headers</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-294"></span><span>                     </span><span class="annot"><span class="annottext">[(HeaderName, Method)]
+</span><a href="#local-6989586621679065612"><span class="hs-identifier hs-var">basicHeaders</span></a></span><span> </span><span class="annot"><span class="annottext">[(HeaderName, Method)]
+-&gt; [(HeaderName, Method)] -&gt; [(HeaderName, Method)]
+forall a. [a] -&gt; [a] -&gt; [a]
+</span><span class="hs-operator hs-var">++</span></span><span> </span><span class="annot"><span class="annottext">[(HeaderName, Method)]
+</span><a href="#local-6989586621679065608"><span class="hs-identifier hs-var">extraHeaders</span></a></span><span>
+</span><span id="line-295"></span><span>             </span><span class="annot"><span class="annottext">Response -&gt; IO ResponseReceived
+</span><a href="#local-6989586621679065549"><span class="hs-identifier hs-var">callback</span></a></span><span> </span><span class="annot"><span class="annottext">(Response -&gt; IO ResponseReceived)
+-&gt; Response -&gt; IO ResponseReceived
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">Status
+-&gt; [(HeaderName, Method)] -&gt; FilePath -&gt; Maybe FilePart -&gt; Response
+</span><span class="hs-identifier hs-var">responseFile</span></span><span> </span><span class="annot"><span class="annottext">Status
+</span><span class="hs-identifier hs-var">status200</span></span><span> </span><span class="annot"><span class="annottext">[(HeaderName, Method)]
+</span><a href="#local-6989586621679065613"><span class="hs-identifier hs-var">headers</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065607"><span class="hs-identifier hs-var">fp</span></a></span><span> </span><span class="annot"><span class="annottext">Maybe FilePart
+forall a. Maybe a
+</span><span class="hs-identifier hs-var">Nothing</span></span><span>
+</span><span id="line-296"></span><span>
+</span><span id="line-297"></span><span class="annot"><span class="hs-comment">-- | Container caching file meta information. Create using 'initCaching'</span></span><span>
+</span><span id="line-298"></span><span class="hs-keyword">data</span><span> </span><span id="CacheContainer"><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-var">CacheContainer</span></a></span></span><span>
+</span><span id="line-299"></span><span>    </span><span class="hs-glyph">=</span><span> </span><span id="CacheContainerEmpty"><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainerEmpty"><span class="hs-identifier hs-var">CacheContainerEmpty</span></a></span></span><span>
+</span><span id="line-300"></span><span>    </span><span class="hs-glyph">|</span><span> </span><span id="CacheContainer"><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-var">CacheContainer</span></a></span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-type">FileMeta</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CachingStrategy"><span class="hs-identifier hs-type">CachingStrategy</span></a></span><span>
+</span><span id="line-301"></span><span>
+</span><span id="line-302"></span><span class="annot"><span class="hs-comment">-- | Meta information about a file to calculate cache headers</span></span><span>
+</span><span id="line-303"></span><span class="hs-keyword">data</span><span> </span><span id="FileMeta"><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-var">FileMeta</span></a></span></span><span>
+</span><span id="line-304"></span><span>   </span><span class="hs-glyph">=</span><span> </span><span id="FileMeta"><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-var">FileMeta</span></a></span></span><span>
+</span><span id="line-305"></span><span>   </span><span class="hs-special">{</span><span> </span><span id="fm_lastModified"><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_lastModified"><span class="hs-identifier hs-var hs-var">fm_lastModified</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">BS.ByteString</span></span><span>
+</span><span id="line-306"></span><span>   </span><span class="hs-special">,</span><span> </span><span id="fm_etag"><span class="annot"><span class="annottext">FileMeta -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_etag"><span class="hs-identifier hs-var hs-var">fm_etag</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="hs-glyph">!</span><span class="annot"><span class="hs-identifier hs-type">BS.ByteString</span></span><span>
+</span><span id="line-307"></span><span>   </span><span class="hs-special">,</span><span> </span><span id="fm_fileName"><span class="annot"><span class="annottext">FileMeta -&gt; FilePath
+</span><a href="Network.Wai.Middleware.Static.html#fm_fileName"><span class="hs-identifier hs-var hs-var">fm_fileName</span></a></span></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span>
+</span><span id="line-308"></span><span>   </span><span class="hs-special">}</span><span> </span><span class="hs-keyword">deriving</span><span> </span><span class="hs-special">(</span><span id="local-6989586621679065620"><span id="local-6989586621679065630"><span id="local-6989586621679065634"><span class="annot"><span class="annottext">Int -&gt; FileMeta -&gt; FilePath -&gt; FilePath
+[FileMeta] -&gt; FilePath -&gt; FilePath
+FileMeta -&gt; FilePath
+(Int -&gt; FileMeta -&gt; FilePath -&gt; FilePath)
+-&gt; (FileMeta -&gt; FilePath)
+-&gt; ([FileMeta] -&gt; FilePath -&gt; FilePath)
+-&gt; Show FileMeta
+forall a.
+(Int -&gt; a -&gt; FilePath -&gt; FilePath)
+-&gt; (a -&gt; FilePath) -&gt; ([a] -&gt; FilePath -&gt; FilePath) -&gt; Show a
+$cshowsPrec :: Int -&gt; FileMeta -&gt; FilePath -&gt; FilePath
+showsPrec :: Int -&gt; FileMeta -&gt; FilePath -&gt; FilePath
+$cshow :: FileMeta -&gt; FilePath
+show :: FileMeta -&gt; FilePath
+$cshowList :: [FileMeta] -&gt; FilePath -&gt; FilePath
+showList :: [FileMeta] -&gt; FilePath -&gt; FilePath
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var hs-var hs-var">Show</span></span></span></span></span><span class="hs-special">,</span><span> </span><span id="local-6989586621679065639"><span id="local-6989586621679065644"><span class="annot"><span class="annottext">FileMeta -&gt; FileMeta -&gt; Bool
+(FileMeta -&gt; FileMeta -&gt; Bool)
+-&gt; (FileMeta -&gt; FileMeta -&gt; Bool) -&gt; Eq FileMeta
+forall a. (a -&gt; a -&gt; Bool) -&gt; (a -&gt; a -&gt; Bool) -&gt; Eq a
+$c== :: FileMeta -&gt; FileMeta -&gt; Bool
+== :: FileMeta -&gt; FileMeta -&gt; Bool
+$c/= :: FileMeta -&gt; FileMeta -&gt; Bool
+/= :: FileMeta -&gt; FileMeta -&gt; Bool
+</span><span class="hs-identifier hs-var hs-var hs-var hs-var hs-var hs-var">Eq</span></span></span></span><span class="hs-special">)</span><span>
+</span><span id="line-309"></span><span>
+</span><span id="line-310"></span><span class="annot"><span class="hs-comment">-- | Initialize caching. This should only be done once per application launch.</span></span><span>
+</span><span id="line-311"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#initCaching"><span class="hs-identifier hs-type">initCaching</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CachingStrategy"><span class="hs-identifier hs-type">CachingStrategy</span></a></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-type">CacheContainer</span></a></span><span>
+</span><span id="line-312"></span><span id="initCaching"><span class="annot"><span class="annottext">initCaching :: CachingStrategy -&gt; IO CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#initCaching"><span class="hs-identifier hs-var hs-var">initCaching</span></a></span></span><span> </span><span id="local-6989586621679065648"><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065648"><span class="hs-identifier hs-var">cs</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-313"></span><span>    </span><span class="hs-keyword">do</span><span> </span><span class="hs-keyword">let</span><span> </span><span id="local-6989586621679065656"><span class="annot"><span class="annottext">cacheAccess :: Maybe s -&gt; FilePath -&gt; IO (Int, (Maybe s, FileMeta))
+</span><a href="#local-6989586621679065656"><span class="hs-identifier hs-var hs-var">cacheAccess</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-314"></span><span>               </span><span class="annot"><span class="annottext">Int
+-&gt; (Maybe s -&gt; FilePath -&gt; IO (Maybe s, FileMeta))
+-&gt; Maybe s
+-&gt; FilePath
+-&gt; IO (Int, (Maybe s, FileMeta))
+forall (m :: * -&gt; *) k s v.
+(Monad m, Eq k, Hashable k) =&gt;
+Int
+-&gt; (Maybe s -&gt; k -&gt; m (Maybe s, v))
+-&gt; Maybe s
+-&gt; k
+-&gt; m (Int, (Maybe s, v))
+</span><span class="hs-identifier hs-var">consistentDuration</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">100</span></span><span> </span><span class="annot"><span class="annottext">((Maybe s -&gt; FilePath -&gt; IO (Maybe s, FileMeta))
+ -&gt; Maybe s -&gt; FilePath -&gt; IO (Int, (Maybe s, FileMeta)))
+-&gt; (Maybe s -&gt; FilePath -&gt; IO (Maybe s, FileMeta))
+-&gt; Maybe s
+-&gt; FilePath
+-&gt; IO (Int, (Maybe s, FileMeta))
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="hs-glyph">\</span><span id="local-6989586621679065657"><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679065657"><span class="hs-identifier hs-var">state</span></a></span></span><span> </span><span id="local-6989586621679065658"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065658"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span class="hs-glyph">-&gt;</span><span>
+</span><span id="line-315"></span><span>                   </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679065659"><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065659"><span class="hs-identifier hs-var">fileMeta</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO FileMeta
+</span><a href="Network.Wai.Middleware.Static.html#computeFileMeta"><span class="hs-identifier hs-var">computeFileMeta</span></a></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065658"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-316"></span><span>                      </span><span class="annot"><span class="annottext">(Maybe s, FileMeta) -&gt; IO (Maybe s, FileMeta)
+forall a. a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">((Maybe s, FileMeta) -&gt; IO (Maybe s, FileMeta))
+-&gt; (Maybe s, FileMeta) -&gt; IO (Maybe s, FileMeta)
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$!</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">Maybe s
+</span><a href="#local-6989586621679065657"><span class="hs-identifier hs-var">state</span></a></span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">FileMeta
+</span><a href="#local-6989586621679065659"><span class="hs-identifier hs-var">fileMeta</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-317"></span><span>           </span><span id="local-6989586621679065680"><span class="annot"><span class="annottext">cacheTick :: IO Int
+</span><a href="#local-6989586621679065680"><span class="hs-identifier hs-var hs-var">cacheTick</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-318"></span><span>               </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679065681"><span class="annot"><span class="annottext">POSIXTime
+</span><a href="#local-6989586621679065681"><span class="hs-identifier hs-var">time</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">IO POSIXTime
+</span><span class="hs-identifier hs-var">getPOSIXTime</span></span><span>
+</span><span id="line-319"></span><span>                  </span><span class="annot"><span class="annottext">Int -&gt; IO Int
+forall a. a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">POSIXTime -&gt; Int
+forall b. Integral b =&gt; POSIXTime -&gt; b
+forall a b. (RealFrac a, Integral b) =&gt; a -&gt; b
+</span><span class="hs-identifier hs-var">round</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">POSIXTime
+</span><a href="#local-6989586621679065681"><span class="hs-identifier hs-var">time</span></a></span><span> </span><span class="annot"><span class="annottext">POSIXTime -&gt; POSIXTime -&gt; POSIXTime
+forall a. Num a =&gt; a -&gt; a -&gt; a
+</span><span class="hs-operator hs-var">*</span></span><span> </span><span class="annot"><span class="annottext">POSIXTime
+</span><span class="hs-number">100</span></span><span class="hs-special">)</span><span class="hs-special">)</span><span>
+</span><span id="line-320"></span><span>           </span><span id="local-6989586621679065687"><span class="annot"><span class="annottext">cacheFreq :: ECMIncr
+</span><a href="#local-6989586621679065687"><span class="hs-identifier hs-var hs-var">cacheFreq</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><span class="hs-number">1</span></span><span>
+</span><span id="line-321"></span><span>           </span><span id="local-6989586621679065688"><span class="annot"><span class="annottext">cacheLRU :: CacheSettings
+</span><a href="#local-6989586621679065688"><span class="hs-identifier hs-var hs-var">cacheLRU</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-322"></span><span>               </span><span class="annot"><span class="annottext">Int -&gt; Int -&gt; Int -&gt; CacheSettings
+</span><span class="hs-identifier hs-var">CacheWithLRUList</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">100</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">100</span></span><span> </span><span class="annot"><span class="annottext">Int
+</span><span class="hs-number">200</span></span><span>
+</span><span id="line-323"></span><span>       </span><span id="local-6989586621679065690"><span class="annot"><span class="annottext">ECM IO MVar Any HashMap FilePath FileMeta
+</span><a href="#local-6989586621679065690"><span class="hs-identifier hs-var">filecache</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">(Maybe Any -&gt; FilePath -&gt; IO (Int, (Maybe Any, FileMeta)))
+-&gt; IO Int
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; IO (ECM IO MVar Any HashMap FilePath FileMeta)
+forall k s v.
+(Eq k, Hashable k) =&gt;
+(Maybe s -&gt; k -&gt; IO (Int, (Maybe s, v)))
+-&gt; IO Int
+-&gt; ECMIncr
+-&gt; CacheSettings
+-&gt; IO (ECM IO MVar s HashMap k v)
+</span><span class="hs-identifier hs-var">newECMIO</span></span><span> </span><span class="annot"><span class="annottext">Maybe Any -&gt; FilePath -&gt; IO (Int, (Maybe Any, FileMeta))
+forall {s}. Maybe s -&gt; FilePath -&gt; IO (Int, (Maybe s, FileMeta))
+</span><a href="#local-6989586621679065656"><span class="hs-identifier hs-var">cacheAccess</span></a></span><span> </span><span class="annot"><span class="annottext">IO Int
+</span><a href="#local-6989586621679065680"><span class="hs-identifier hs-var">cacheTick</span></a></span><span> </span><span class="annot"><span class="annottext">ECMIncr
+</span><a href="#local-6989586621679065687"><span class="hs-identifier hs-var">cacheFreq</span></a></span><span> </span><span class="annot"><span class="annottext">CacheSettings
+</span><a href="#local-6989586621679065688"><span class="hs-identifier hs-var">cacheLRU</span></a></span><span>
+</span><span id="line-324"></span><span>       </span><span class="annot"><span class="annottext">CacheContainer -&gt; IO CacheContainer
+forall a. a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">(FilePath -&gt; IO FileMeta) -&gt; CachingStrategy -&gt; CacheContainer
+</span><a href="Network.Wai.Middleware.Static.html#CacheContainer"><span class="hs-identifier hs-var">CacheContainer</span></a></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ECM IO MVar Any HashMap FilePath FileMeta
+-&gt; FilePath -&gt; IO FileMeta
+forall (m :: * -&gt; *) k (mv :: * -&gt; *) s v.
+(Monad m, Eq k, Hashable k) =&gt;
+ECM m mv s HashMap k v -&gt; k -&gt; m v
+</span><span class="hs-identifier hs-var">lookupECM</span></span><span> </span><span class="annot"><span class="annottext">ECM IO MVar Any HashMap FilePath FileMeta
+</span><a href="#local-6989586621679065690"><span class="hs-identifier hs-var">filecache</span></a></span><span class="hs-special">)</span><span> </span><span class="annot"><span class="annottext">CachingStrategy
+</span><a href="#local-6989586621679065648"><span class="hs-identifier hs-var">cs</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-325"></span><span>
+</span><span id="line-326"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#computeFileMeta"><span class="hs-identifier hs-type">computeFileMeta</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">IO</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-type">FileMeta</span></a></span><span>
+</span><span id="line-327"></span><span id="computeFileMeta"><span class="annot"><span class="annottext">computeFileMeta :: FilePath -&gt; IO FileMeta
+</span><a href="Network.Wai.Middleware.Static.html#computeFileMeta"><span class="hs-identifier hs-var hs-var">computeFileMeta</span></a></span></span><span> </span><span id="local-6989586621679065691"><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065691"><span class="hs-identifier hs-var">fp</span></a></span></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-328"></span><span>    </span><span class="hs-keyword">do</span><span> </span><span id="local-6989586621679065692"><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621679065692"><span class="hs-identifier hs-var">mtime</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO UTCTime
+</span><span class="hs-identifier hs-var">getModificationTime</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065691"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-329"></span><span>       </span><span id="local-6989586621679065693"><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679065693"><span class="hs-identifier hs-var">ct</span></a></span></span><span> </span><span class="hs-glyph">&lt;-</span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; IO ByteString
+</span><span class="hs-identifier hs-var">BSL.readFile</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065691"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-330"></span><span>       </span><span class="annot"><span class="annottext">FileMeta -&gt; IO FileMeta
+forall a. a -&gt; IO a
+forall (m :: * -&gt; *) a. Monad m =&gt; a -&gt; m a
+</span><span class="hs-identifier hs-var">return</span></span><span> </span><span class="annot"><span class="annottext">(FileMeta -&gt; IO FileMeta) -&gt; FileMeta -&gt; IO FileMeta
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><a href="Network.Wai.Middleware.Static.html#FileMeta"><span class="hs-identifier hs-type">FileMeta</span></a></span><span>
+</span><span id="line-331"></span><span>                </span><span class="hs-special">{</span><span> </span><span class="annot"><span class="annottext">fm_lastModified :: Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_lastModified"><span class="hs-identifier hs-var">fm_lastModified</span></a></span><span> </span><span class="hs-glyph">=</span><span>
+</span><span id="line-332"></span><span>                      </span><span class="annot"><span class="annottext">FilePath -&gt; Method
+</span><span class="hs-identifier hs-var">BSC.pack</span></span><span> </span><span class="annot"><span class="annottext">(FilePath -&gt; Method) -&gt; FilePath -&gt; Method
+forall a b. (a -&gt; b) -&gt; a -&gt; b
+</span><span class="hs-operator hs-var">$</span></span><span> </span><span class="annot"><span class="annottext">TimeLocale -&gt; FilePath -&gt; UTCTime -&gt; FilePath
+forall t. FormatTime t =&gt; TimeLocale -&gt; FilePath -&gt; t -&gt; FilePath
+</span><span class="hs-identifier hs-var">formatTime</span></span><span> </span><span class="annot"><span class="annottext">TimeLocale
+</span><span class="hs-identifier hs-var">defaultTimeLocale</span></span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><span class="hs-string">&quot;%a, %d-%b-%Y %X %Z&quot;</span></span><span> </span><span class="annot"><span class="annottext">UTCTime
+</span><a href="#local-6989586621679065692"><span class="hs-identifier hs-var">mtime</span></a></span><span>
+</span><span id="line-333"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fm_etag :: Method
+</span><a href="Network.Wai.Middleware.Static.html#fm_etag"><span class="hs-identifier hs-var">fm_etag</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Method -&gt; Method
+</span><span class="hs-identifier hs-var">Base16.encode</span></span><span> </span><span class="hs-special">(</span><span class="annot"><span class="annottext">ByteString -&gt; Method
+</span><span class="hs-identifier hs-var">SHA1.hashlazy</span></span><span> </span><span class="annot"><span class="annottext">ByteString
+</span><a href="#local-6989586621679065693"><span class="hs-identifier hs-var">ct</span></a></span><span class="hs-special">)</span><span>
+</span><span id="line-334"></span><span>                </span><span class="hs-special">,</span><span> </span><span class="annot"><span class="annottext">fm_fileName :: FilePath
+</span><a href="Network.Wai.Middleware.Static.html#fm_fileName"><span class="hs-identifier hs-var">fm_fileName</span></a></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">FilePath
+</span><a href="#local-6989586621679065691"><span class="hs-identifier hs-var">fp</span></a></span><span>
+</span><span id="line-335"></span><span>                </span><span class="hs-special">}</span><span>
+</span><span id="line-336"></span><span>
+</span><span id="line-337"></span><span class="annot"><span class="hs-comment">-- | Guess MIME type from file extension</span></span><span>
+</span><span id="line-338"></span><span class="annot"><a href="Network.Wai.Middleware.Static.html#getMimeType"><span class="hs-identifier hs-type">getMimeType</span></a></span><span> </span><span class="hs-glyph">::</span><span> </span><span class="annot"><span class="hs-identifier hs-type">FilePath</span></span><span> </span><span class="hs-glyph">-&gt;</span><span> </span><span class="annot"><span class="hs-identifier hs-type">MimeType</span></span><span>
+</span><span id="line-339"></span><span id="getMimeType"><span class="annot"><span class="annottext">getMimeType :: FilePath -&gt; Method
+</span><a href="Network.Wai.Middleware.Static.html#getMimeType"><span class="hs-identifier hs-var hs-var">getMimeType</span></a></span></span><span> </span><span class="hs-glyph">=</span><span> </span><span class="annot"><span class="annottext">Text -&gt; Method
+</span><span class="hs-identifier hs-var">defaultMimeLookup</span></span><span> </span><span class="annot"><span class="annottext">(Text -&gt; Method) -&gt; (FilePath -&gt; Text) -&gt; FilePath -&gt; Method
+forall b c a. (b -&gt; c) -&gt; (a -&gt; b) -&gt; a -&gt; c
+</span><span class="hs-operator hs-var">.</span></span><span> </span><span class="annot"><span class="annottext">FilePath -&gt; Text
+</span><span class="hs-identifier hs-var">T.pack</span></span><span>
+</span><span id="line-340"></span></pre></body></html>
